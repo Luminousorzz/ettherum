@@ -79,13 +79,50 @@ const localPythonPath = isWin
   ? path.join(venvDir, "Scripts/python.exe")
   : path.join(venvDir, "bin/python");
 
-let systemPython = "";
-try {
-  const p = Bun.spawnSync([isWin ? "python" : "python3", "--version"]);
-  if (p.success) {
-    systemPython = isWin ? "python" : "python3";
+function findSystemPython(): string {
+  // Try default path command
+  try {
+    const p = Bun.spawnSync([isWin ? "python" : "python3", "--version"]);
+    const out = (p.stdout?.toString() || "") + (p.stderr?.toString() || "");
+    if (p.success && out.toLowerCase().includes("python")) {
+      return isWin ? "python" : "python3";
+    }
+  } catch {}
+
+  if (!isWin) return "";
+
+  // Search common Windows installation paths to bypass PATH environment propagation delay
+  const userProfile = process.env.USERPROFILE || "";
+  const programFiles = process.env.ProgramFiles || "C:\\Program Files";
+  const programFilesX86 = process.env["ProgramFiles(x86)"] || "C:\\Program Files (x86)";
+  
+  const possiblePaths = [
+    // User profile installations (winget default for user install)
+    ...Array.from({ length: 6 }, (_, i) => path.join(userProfile, `AppData\\Local\\Programs\\Python\\Python3${10 + i}\\python.exe`)),
+    ...Array.from({ length: 6 }, (_, i) => path.join(userProfile, `AppData\\Local\\Programs\\Python\\Python3${10 + i}-64\\python.exe`)),
+    // System-wide installations
+    ...Array.from({ length: 6 }, (_, i) => path.join(programFiles, `Python3${10 + i}\\python.exe`)),
+    ...Array.from({ length: 6 }, (_, i) => path.join(programFilesX86, `Python3${10 + i}\\python.exe`)),
+    // Root level installations
+    ...Array.from({ length: 6 }, (_, i) => `C:\\Python3${10 + i}\\python.exe`),
+  ];
+
+  for (const p of possiblePaths) {
+    if (existsSync(p)) {
+      try {
+        const check = Bun.spawnSync([p, "--version"]);
+        const out = (check.stdout?.toString() || "") + (check.stderr?.toString() || "");
+        if (check.success && out.toLowerCase().includes("python")) {
+          return p;
+        }
+      } catch {}
+    }
   }
-} catch {}
+
+  return "";
+}
+
+let systemPython = findSystemPython();
 
 // 5. Python Installation check/winget setup
 if (!existsSync(localPythonPath)) {
@@ -100,14 +137,11 @@ if (!existsSync(localPythonPath)) {
       ]);
       await proc.exited;
       
-      // Re-verify python
-      try {
-        const p = Bun.spawnSync(["python", "--version"]);
-        if (p.success) {
-          systemPython = "python";
-          console.log("Python installed successfully!");
-        }
-      } catch {}
+      // Re-verify python using our robust search function
+      systemPython = findSystemPython();
+      if (systemPython) {
+        console.log(`Python installed successfully at: ${systemPython}`);
+      }
     }
   }
 

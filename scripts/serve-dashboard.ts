@@ -11,8 +11,9 @@
  */
 
 const port = Number(process.env.DASHBOARD_PORT) || 1931;
-const distDir = new URL("../dashboard/dist", import.meta.url).pathname;
-const indexFile = `${distDir}/index.html`;
+import path from "path";
+const distDir = path.resolve(import.meta.dir, "../dashboard/dist");
+const indexFile = path.resolve(distDir, "index.html");
 
 // Check if dashboard is built
 if (!(await Bun.file(indexFile).exists())) {
@@ -42,12 +43,13 @@ function getMimeType(path: string): string {
 
 Bun.serve({
   port,
+  hostname: "0.0.0.0",
   async fetch(req) {
     const url = new URL(req.url);
     let pathname = url.pathname;
 
     // Try to serve the exact file
-    let filePath = `${distDir}${pathname}`;
+    let filePath = path.join(distDir, pathname);
     let file = Bun.file(filePath);
 
     if (await file.exists()) {
@@ -58,7 +60,7 @@ Bun.serve({
 
     // Try with /index.html appended (for directories)
     if (!pathname.includes(".")) {
-      filePath = `${distDir}${pathname}/index.html`;
+      filePath = path.join(distDir, pathname, "index.html");
       file = Bun.file(filePath);
       if (await file.exists()) {
         return new Response(file, {

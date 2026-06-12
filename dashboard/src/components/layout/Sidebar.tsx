@@ -21,6 +21,8 @@ import {
   Moon,
   ChevronLeft,
   ChevronRight,
+  Mail,
+  MailOpen,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useTheme } from "@/hooks/useTheme";
@@ -50,6 +52,8 @@ const navSections: NavSection[] = [
     title: "TOOLS",
     items: [
       { label: "Image Studio", path: "/image-studio", icon: Sparkles },
+      { label: "DotTrick", path: "/dottrick", icon: Mail },
+      { label: "Temp Mail", path: "/temp-mail", icon: MailOpen },
       { label: "Integration", path: "/integration", icon: Plug },
     ],
   },

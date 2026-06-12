@@ -710,3 +710,100 @@ export async function testByokProvider(
     body: JSON.stringify(model ? { model } : {})
   });
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TEMP MAIL API
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface TempMailDomain {
+  id: number;
+  domain: string;
+  createdAt: string;
+}
+
+export interface TempMailAddress {
+  id: number;
+  domainId: number;
+  address: string;
+  createdAt: string;
+  expiresAt: string | null;
+}
+
+export interface TempMailMessage {
+  id: number;
+  addressId: number;
+  sender: string;
+  subject: string;
+  bodyText: string;
+  bodyHtml: string;
+  rawEmail: string;
+  isRead: boolean;
+  createdAt: string;
+}
+
+export interface TempMailSettings {
+  smtpEnabled: boolean;
+  smtpPort: number;
+  webhookSecret: string;
+}
+
+export async function fetchTempMailDomains(): Promise<TempMailDomain[]> {
+  return fetchApi<TempMailDomain[]>("/api/temp-mail/domains");
+}
+
+export async function createTempMailDomain(domain: string): Promise<TempMailDomain> {
+  return fetchApi<TempMailDomain>("/api/temp-mail/domains", {
+    method: "POST",
+    body: JSON.stringify({ domain }),
+  });
+}
+
+export async function deleteTempMailDomain(id: number): Promise<{ success: boolean; deleted: TempMailDomain }> {
+  return fetchApi(`/api/temp-mail/domains/${id}`, {
+    method: "DELETE",
+  });
+}
+
+export async function fetchTempMailAddresses(): Promise<TempMailAddress[]> {
+  return fetchApi<TempMailAddress[]>("/api/temp-mail/addresses");
+}
+
+export async function createTempMailAddress(domainId: number, prefix?: string): Promise<TempMailAddress> {
+  return fetchApi<TempMailAddress>("/api/temp-mail/addresses", {
+    method: "POST",
+    body: JSON.stringify({ domainId, prefix }),
+  });
+}
+
+export async function deleteTempMailAddress(id: number): Promise<{ success: boolean; deleted: TempMailAddress }> {
+  return fetchApi(`/api/temp-mail/addresses/${id}`, {
+    method: "DELETE",
+  });
+}
+
+export async function fetchTempMailMessages(addressId: number): Promise<TempMailMessage[]> {
+  return fetchApi<TempMailMessage[]>(`/api/temp-mail/messages/${addressId}`);
+}
+
+export async function deleteTempMailMessage(id: number): Promise<{ success: boolean; deleted: TempMailMessage }> {
+  return fetchApi(`/api/temp-mail/messages/${id}`, {
+    method: "DELETE",
+  });
+}
+
+export async function clearTempMailMessages(addressId: number): Promise<{ success: boolean }> {
+  return fetchApi(`/api/temp-mail/messages/clear/${addressId}`, {
+    method: "DELETE",
+  });
+}
+
+export async function fetchTempMailSettings(): Promise<TempMailSettings> {
+  return fetchApi<TempMailSettings>("/api/temp-mail/settings");
+}
+
+export async function saveTempMailSettings(payload: { smtpEnabled: boolean; smtpPort: number; webhookSecret: string }): Promise<{ success: boolean; settings: TempMailSettings }> {
+  return fetchApi("/api/temp-mail/settings", {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}

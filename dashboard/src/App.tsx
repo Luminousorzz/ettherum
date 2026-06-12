@@ -18,6 +18,8 @@ const ProxyPool = lazy(() => import("./pages/ProxyPool"));
 const ImageStudio = lazy(() => import("./pages/ImageStudio"));
 const FilterRules = lazy(() => import("./pages/FilterRules"));
 const Integration = lazy(() => import("./pages/Integration"));
+const DotTrick = lazy(() => import("./pages/DotTrick"));
+const TempMail = lazy(() => import("./pages/TempMail"));
 const CodexOAuthCallback = lazy(() => import("./pages/CodexOAuthCallback"));
 
 function RouteFallback() {
@@ -79,6 +81,8 @@ export default function App() {
           <Route path="/proxy-pool" element={<ProxyPool />} />
           <Route path="/filter-rules" element={<FilterRules />} />
           <Route path="/integration" element={<Integration />} />
+          <Route path="/dottrick" element={<DotTrick />} />
+          <Route path="/temp-mail" element={<TempMail />} />
           <Route path="/image-studio" element={<ImageStudio />} />
           <Route path="/oauth/codex/callback" element={<CodexOAuthCallback />} />
         </Route>

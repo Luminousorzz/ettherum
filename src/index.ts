@@ -10,8 +10,8 @@ import { websocketHandler, getClientCount } from "./ws/index";
 import { isValidApiKey } from "./api/keys";
 import { autoWarmupScheduler } from "./auth/warmup-scheduler";
 import { db } from "./db/index";
-import { filterRules } from "./db/schema";
-import { sql } from "drizzle-orm";
+import { filterRules, settings } from "./db/schema";
+import { sql, eq } from "drizzle-orm";
 import { PUDIDIL_FILTERS } from "./proxy/filters";
 import { loadFilterCache } from "./proxy/filter-cache";
 import { ensureModelMappingTable, seedModelMappings, loadModelMappingCache } from "./proxy/model-mapping";
@@ -63,6 +63,21 @@ try {
 // Start auto-warmup scheduler (reads settings from DB)
 await autoWarmupScheduler.start();
 
+// Start Temp Mail SMTP server if enabled in settings
+try {
+  const smtpEnabledRow = await db.select().from(settings).where(eq(settings.key, "temp_mail_smtp_enabled")).get();
+  const smtpPortRow = await db.select().from(settings).where(eq(settings.key, "temp_mail_smtp_port")).get();
+  const smtpEnabled = smtpEnabledRow?.value === "true";
+  const smtpPort = parseInt(smtpPortRow?.value || "2525");
+  
+  if (smtpEnabled) {
+    const { startSmtpServer } = await import("./services/smtp");
+    startSmtpServer(smtpPort);
+  }
+} catch (e) {
+  console.error("[SMTP] Failed to initialize SMTP server on startup:", e);
+}
+
 // Create Hono app
 const app = new Hono();
 
@@ -95,8 +110,8 @@ app.use("/v1/*", async (c, next) => {
 
 // API Key authentication for management API
 app.use("/api/*", async (c, next) => {
-  // Allow health check, info, and key validation without auth
-  if (c.req.path === "/api/health" || c.req.path === "/api/info" || c.req.path === "/api/keys/test") {
+  // Allow health check, info, key validation, and incoming temp mail webhook without auth
+  if (c.req.path === "/api/health" || c.req.path === "/api/info" || c.req.path === "/api/keys/test" || c.req.path === "/api/temp-mail/incoming") {
     await next();
     return;
   }
@@ -142,8 +157,9 @@ app.get("/api/info", (c) => {
 });
 
 // Serve dashboard static files (SPA fallback)
-const dashboardDist = new URL("../dashboard/dist", import.meta.url).pathname;
-const dashboardIndex = `${dashboardDist}/index.html`;
+import path from "path";
+const dashboardDist = path.resolve(import.meta.dir, "../dashboard/dist");
+const dashboardIndex = path.resolve(dashboardDist, "index.html");
 
 const staticMimeTypes: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -162,6 +178,7 @@ const staticMimeTypes: Record<string, string> = {
 // Start server with WebSocket support
 const server = Bun.serve({
   port: config.port,
+  hostname: "0.0.0.0",
   idleTimeout: 255,
   async fetch(req, server) {
     // Handle WebSocket upgrade
@@ -178,7 +195,7 @@ const server = Bun.serve({
 
     // Fallback: serve dashboard static files
     const pathname = url.pathname;
-    const filePath = `${dashboardDist}${pathname}`;
+    const filePath = path.join(dashboardDist, pathname);
     const file = Bun.file(filePath);
     if (await file.exists()) {
       const ext = pathname.slice(pathname.lastIndexOf("."));

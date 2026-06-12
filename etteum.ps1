@@ -9,15 +9,45 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-# Auto-detect project dir: env override > script dir
+# Auto-detect project dir: env override > current working dir > default dir > script dir
+$ProjectDir = $null
+
+function Test-ProjectDir([string]$dir) {
+  if (-not (Test-Path $dir)) { return $false }
+  $pkgPath = Join-Path $dir "package.json"
+  if (-not (Test-Path $pkgPath)) { return $false }
+  $pkgContent = Get-Content $pkgPath -Raw -ErrorAction SilentlyContinue
+  if ($pkgContent -and ($pkgContent -match '"name"\s*:\s*"poolprox3"')) {
+    return $true
+  }
+  return $false
+}
+
 if ($env:POOLPROX_HOME -and (Test-Path $env:POOLPROX_HOME)) {
   $ProjectDir = $env:POOLPROX_HOME
-} else {
+}
+
+if (-not $ProjectDir) {
+  $cwd = (Get-Location).Path
+  if (Test-ProjectDir $cwd) {
+    $ProjectDir = $cwd
+  }
+}
+
+if (-not $ProjectDir) {
+  $defaultDir = Join-Path $HOME "etteum-pool"
+  if (Test-ProjectDir $defaultDir) {
+    $ProjectDir = $defaultDir
+  }
+}
+
+if (-not $ProjectDir) {
   $ProjectDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 }
 
 $PidFile = Join-Path $ProjectDir ".etteum.pid"
 $LogFile = Join-Path $ProjectDir ".etteum.log"
+$LogErrFile = Join-Path $ProjectDir ".etteum.err.log"
 $EnvFile = Join-Path $ProjectDir ".env"
 
 function Get-EnvValue([string]$key, [string]$default) {
@@ -62,10 +92,11 @@ function Invoke-Start {
 
   Write-Host "Starting Etteum..."
   $proc = Start-Process -FilePath "bun" -ArgumentList "scripts/production.ts","--skip-build" `
-    -WorkingDirectory $ProjectDir -RedirectStandardOutput $LogFile -RedirectStandardError $LogFile `
+    -WorkingDirectory $ProjectDir -RedirectStandardOutput $LogFile -RedirectStandardError $LogErrFile `
     -WindowStyle Hidden -PassThru
   $proc.Id | Out-File -FilePath $PidFile -Encoding ascii
   Start-Sleep -Seconds 1
+
 
   if (-not $proc.HasExited) {
     Write-Host "Etteum started (PID $($proc.Id))" -ForegroundColor Green

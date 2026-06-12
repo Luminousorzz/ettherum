@@ -1,4 +1,5 @@
-const root = new URL("..", import.meta.url).pathname;
+import path from "path";
+const root = path.resolve(import.meta.dir, "..");
 const port = process.env.PORT || "1930";
 const dashboardPort = process.env.DASHBOARD_PORT || "1931";
 
@@ -77,7 +78,7 @@ children.push(
     "0.0.0.0",
     "--port",
     dashboardPort,
-  ], `${root}/dashboard`)
+  ], path.join(root, "dashboard"))
 );
 
 await new Promise(() => {});

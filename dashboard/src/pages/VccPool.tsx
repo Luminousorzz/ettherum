@@ -187,8 +187,7 @@ export default function VccPool() {
     try {
       const formattedCards = cards.map((card) => ({
         number: card.number,
-        expMonth: card.month,
-        expYear: card.year.length === 2 ? `20${card.year}` : card.year,
+        exp: `${card.month}/${card.year}`,
         cvv: card.cvv,
         name: "John Doe",
       }));

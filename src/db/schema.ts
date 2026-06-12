@@ -183,6 +183,35 @@ export const modelMappings = sqliteTable("model_mappings", {
   index("model_mappings_priority_idx").on(table.priority),
 ]);
 
+export const tempMailDomains = sqliteTable("temp_mail_domains", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  domain: text("domain").notNull().unique(),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+});
+
+export const tempMailAddresses = sqliteTable("temp_mail_addresses", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  domainId: integer("domain_id").notNull().references(() => tempMailDomains.id, { onDelete: "cascade" }),
+  address: text("address").notNull().unique(), // prefix@domain.com
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+  expiresAt: integer("expires_at", { mode: "timestamp" }), // nullable: never expires
+});
+
+export const tempMailMessages = sqliteTable("temp_mail_messages", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  addressId: integer("address_id").notNull().references(() => tempMailAddresses.id, { onDelete: "cascade" }),
+  sender: text("sender").notNull(),
+  subject: text("subject").notNull(),
+  bodyText: text("body_text").notNull(),
+  bodyHtml: text("body_html").notNull(),
+  rawEmail: text("raw_email").notNull(),
+  isRead: integer("is_read", { mode: "boolean" }).notNull().default(false),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+}, (table) => [
+  index("temp_mail_messages_address_idx").on(table.addressId),
+  index("temp_mail_messages_created_at_idx").on(table.createdAt),
+]);
+
 // Type exports
 export type Account = typeof accounts.$inferSelect;
 export type NewAccount = typeof accounts.$inferInsert;
@@ -205,3 +234,9 @@ export type FilterRule = typeof filterRules.$inferSelect;
 export type NewFilterRule = typeof filterRules.$inferInsert;
 export type ModelMapping = typeof modelMappings.$inferSelect;
 export type NewModelMapping = typeof modelMappings.$inferInsert;
+export type TempMailDomain = typeof tempMailDomains.$inferSelect;
+export type NewTempMailDomain = typeof tempMailDomains.$inferInsert;
+export type TempMailAddress = typeof tempMailAddresses.$inferSelect;
+export type NewTempMailAddress = typeof tempMailAddresses.$inferInsert;
+export type TempMailMessage = typeof tempMailMessages.$inferSelect;
+export type NewTempMailMessage = typeof tempMailMessages.$inferInsert;

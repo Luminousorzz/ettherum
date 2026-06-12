@@ -150,6 +150,7 @@ Usage: etteum <command>
   build      Rebuild dashboard then restart
   dev        Run in foreground with Vite HMR (Ctrl-C to quit)
   migrate    Run database migrations
+  update     Pull git, install deps, build, run migrations, and restart
 EOF
 }
 
@@ -171,6 +172,19 @@ case "${1:-}" in
     ;;
   migrate)
     cd "$PROJECT_DIR" && exec bun run migrate
+    ;;
+  update)
+    echo "⬇️  Pulling latest updates from Git..."
+    cd "$PROJECT_DIR"
+    git pull origin main || git pull
+    echo "🔨 Installing dependencies..."
+    bun install
+    echo "🔨 Rebuilding dashboard..."
+    (cd "$PROJECT_DIR/dashboard" && bun install && bun run build)
+    echo "🔄 Running migrations..."
+    bun run migrate || true
+    echo "🔄 Restarting server..."
+    do_stop; sleep 1; do_start
     ;;
   ""|help|-h|--help) usage ;;
   *) echo "Unknown command: $1"; echo; usage; exit 1 ;;

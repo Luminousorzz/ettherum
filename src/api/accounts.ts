@@ -405,7 +405,7 @@ accountsRouter.get("/:id", async (c) => {
  */
 accountsRouter.post("/", async (c) => {
   const body = await c.req.json<{
-    provider: "kiro" | "kiro-pro" | "codebuddy" | "canva" | "codex" | "qoder";
+    provider: "kiro" | "kiro-pro" | "codebuddy" | "canva" | "codex" | "qoder" | "outlook";
     email?: string;
     password?: string;
     personalToken?: string;

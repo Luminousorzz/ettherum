@@ -31,7 +31,7 @@ import {
 interface BulkAccountAutomationModalProps {
   isOpen: boolean;
   onClose: () => void;
-  provider: "kiro" | "kiro-pro" | "codebuddy" | "canva" | "codex" | "qoder";
+  provider: "kiro" | "kiro-pro" | "codebuddy" | "canva" | "codex" | "qoder" | "outlook";
   serviceName: string;
   onSuccess?: () => void;
 }

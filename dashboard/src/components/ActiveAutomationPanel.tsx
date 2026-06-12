@@ -15,7 +15,7 @@ import {
 } from "lucide-react";
 
 interface ActiveAutomationPanelProps {
-  provider?: "kiro" | "kiro-pro" | "codebuddy" | "canva" | "codex" | "qoder";
+  provider?: "kiro" | "kiro-pro" | "codebuddy" | "canva" | "codex" | "qoder" | "outlook";
 }
 
 interface AccountProgress {

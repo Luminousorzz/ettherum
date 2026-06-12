@@ -21,7 +21,7 @@ import {
   warmupAllAccounts,
 } from "@/lib/api";
 
-type Provider = "kiro" | "kiro-pro" | "codebuddy" | "canva" | "codex" | "qoder";
+type Provider = "kiro" | "kiro-pro" | "codebuddy" | "canva" | "codex" | "qoder" | "outlook";
 type Status = "active" | "exhausted" | "error" | "pending" | "disabled";
 
 interface CodexQuotaWindow {

@@ -18,6 +18,7 @@ const PROVIDER_LABELS: Record<string, string> = {
   "kiro-pro": "Kiro Pro",
   codebuddy: "CodeBuddy",
   canva: "Canva",
+  outlook: "Outlook",
 };
 
 function labelFor(provider: string): string {

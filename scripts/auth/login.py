@@ -16,6 +16,7 @@ from app.providers.canva import CanvaProviderAdapter
 from app.providers.yepapi import YepAPIAdapter
 from app.providers.codex import CodexProviderAdapter
 from app.providers.qoder import QoderProviderAdapter
+from app.providers.outlook import OutlookProviderAdapter
 from app.providers.base import NormalizedAccount
 from app.errors.codes import ErrorCode
 from app.errors.exceptions import BatcherError, RetryableBatcherError
@@ -386,17 +387,18 @@ async def main(email: str, password: str):
             "kiro-pro": (KiroProProviderAdapter(), NormalizedAccount(provider="kiro-pro", identifier=email, secret=password)),
             "codex": (CodexProviderAdapter(), NormalizedAccount(provider="codex", identifier=email, secret=password)),
             "qoder": (QoderProviderAdapter(), NormalizedAccount(provider="qoder", identifier=email, secret=password)),
+            "outlook": (OutlookProviderAdapter(), NormalizedAccount(provider="outlook", identifier=email, secret=password)),
         }
         tasks = []
         task_names = []
-        for name in ["kiro", "kiro-pro", "codebuddy", "canva", "codex", "qoder"]:
+        for name in ["kiro", "kiro-pro", "codebuddy", "canva", "codex", "qoder", "outlook"]:
             if name in allowed_providers:
                 adapter, account = provider_specs[name]
                 tasks.append(run_provider(adapter, account))
                 task_names.append(name)
         results = await asyncio.gather(*tasks, return_exceptions=True)
         result = {"type": "result"}
-        for name in ["kiro", "kiro-pro", "codebuddy", "wavespeed", "canva", "yepapi", "codex", "qoder"]:
+        for name in ["kiro", "kiro-pro", "codebuddy", "wavespeed", "canva", "yepapi", "codex", "qoder", "outlook"]:
             result[name] = {"success": False, "provider": name, "error": "skipped"}
         for name, provider_result in zip(task_names, results):
             if isinstance(provider_result, BaseException):

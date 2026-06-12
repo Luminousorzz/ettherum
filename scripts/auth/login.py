@@ -532,7 +532,6 @@ if __name__ == "__main__":
     parser.add_argument("--account-id", type=int, default=None)
     args = parser.parse_args()
 
-    global ACCOUNT_ID
     ACCOUNT_ID = args.account_id
 
     asyncio.run(main(args.email, args.password))

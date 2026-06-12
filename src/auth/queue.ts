@@ -84,9 +84,10 @@ class LoginQueue {
    * Input: array of { email, password, providers }
    * This handles the case where one email is used across multiple providers.
    */
-  async bulkAdd(items: BulkAddItem[], options: { headless?: boolean; concurrency?: number; browserEngine?: string } = {}): Promise<{ created: number; queued: number }> {
+  async bulkAdd(items: BulkAddItem[], options: { headless?: boolean; concurrency?: number; browserEngine?: string } = {}): Promise<{ created: number; queued: number; queuedAccounts: { id: number; email: string; provider: string }[] }> {
     let created = 0;
     const accountIds: number[] = [];
+    const queuedAccounts: { id: number; email: string; provider: string }[] = [];
 
     for (const item of items) {
       for (const provider of item.providers) {
@@ -107,6 +108,11 @@ class LoginQueue {
           if (newAccount) {
             created++;
             accountIds.push(newAccount.id);
+            queuedAccounts.push({
+              id: newAccount.id,
+              email: newAccount.email,
+              provider: newAccount.provider,
+            });
           }
         } catch {
           // Skip duplicates
@@ -119,7 +125,7 @@ class LoginQueue {
     // Queue all created accounts for login
     this.enqueueBulk(accountIds, { headless: options.headless, browserEngine: options.browserEngine });
 
-    return { created, queued: accountIds.length };
+    return { created, queued: accountIds.length, queuedAccounts };
   }
 
   /**
@@ -127,7 +133,7 @@ class LoginQueue {
    */
   async bulkAddAllProviders(
     credentials: Array<{ email: string; password: string }>
-  ): Promise<{ created: number; queued: number }> {
+  ): Promise<{ created: number; queued: number; queuedAccounts: { id: number; email: string; provider: string }[] }> {
     const items: BulkAddItem[] = credentials.map((c) => ({
       ...c,
       providers: ["kiro", "kiro-pro", "codebuddy", "canva"],

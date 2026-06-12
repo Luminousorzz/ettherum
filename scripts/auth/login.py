@@ -27,11 +27,52 @@ PROVIDER_TIMEOUT = 180
 KIRO_PRO_TIMEOUT = 600  # 10 minutes for kiro-pro (upgrade + payment takes longer)
 
 
+ACCOUNT_ID = None
+
 def emit(data: dict):
+    if ACCOUNT_ID is not None and "accountId" not in data:
+        data = {**data, "accountId": ACCOUNT_ID}
     try:
         print(json.dumps(data), flush=True)
     except BrokenPipeError:
         pass
+
+
+async def screenshot_loop(session_dict: dict, provider: str, email: str):
+    import base64
+    while True:
+        try:
+            await asyncio.sleep(1.5)
+            if not isinstance(session_dict, dict):
+                continue
+            page = session_dict.get("page")
+            if not page:
+                continue
+
+            try:
+                if page.is_closed():
+                    break
+            except Exception:
+                break
+
+            screenshot_bytes = await page.screenshot(
+                type="jpeg",
+                quality=50,
+                full_page=False,
+                animations="disabled",
+                caret="hide",
+            )
+            base64_str = base64.b64encode(screenshot_bytes).decode("utf-8")
+            emit({
+                "type": "screenshot",
+                "provider": provider,
+                "email": email,
+                "imageData": f"data:image/jpeg;base64,{base64_str}"
+            })
+        except asyncio.CancelledError:
+            break
+        except Exception:
+            pass
 
 
 def retry_delay(attempt: int) -> float:
@@ -41,6 +82,7 @@ def retry_delay(attempt: int) -> float:
 async def _run_provider_once(adapter, account: NormalizedAccount) -> dict:
     provider_name = adapter.name
     session = None
+    screenshot_task = None
     try:
         session = await adapter.bootstrap_session(account)
         emit(
@@ -51,6 +93,9 @@ async def _run_provider_once(adapter, account: NormalizedAccount) -> dict:
                 "message": "Browser session ready",
             }
         )
+
+        if isinstance(session, dict) and session.get("page"):
+            screenshot_task = asyncio.create_task(screenshot_loop(session, provider_name, account.identifier))
 
         auth_state = await adapter.authenticate(account, session)
         emit(
@@ -167,6 +212,12 @@ async def _run_provider_once(adapter, account: NormalizedAccount) -> dict:
 
         return result
     finally:
+        if screenshot_task:
+            screenshot_task.cancel()
+            try:
+                await screenshot_task
+            except asyncio.CancelledError:
+                pass
         if session is not None:
             try:
                 await adapter.cleanup_session(session)
@@ -478,6 +529,10 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--email", required=True)
     parser.add_argument("--password", required=True)
+    parser.add_argument("--account-id", type=int, default=None)
     args = parser.parse_args()
+
+    global ACCOUNT_ID
+    ACCOUNT_ID = args.account_id
 
     asyncio.run(main(args.email, args.password))

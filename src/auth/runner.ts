@@ -3,7 +3,7 @@ import { db } from "../db/index";
 import { accounts, settings } from "../db/schema";
 import { eq } from "drizzle-orm";
 import { decrypt } from "../utils/crypto";
-import { broadcast } from "../ws/index";
+import { broadcast, isAgentConnected, delegateToAgent, cancelAgentJob } from "../ws/index";
 import type { Account } from "../db/schema";
 import { addAuthLog } from "./logs";
 import { providers } from "../proxy/router";
@@ -15,8 +15,11 @@ const activeProcesses = new Map<number, ReturnType<typeof Bun.spawn>>();
 const manuallyStoppedIds = new Set<number>();
 
 export function stopLoginProcess(accountId: number): boolean {
+  if (isAgentConnected()) {
+    cancelAgentJob(accountId);
+  }
   const proc = activeProcesses.get(accountId);
-  if (!proc) return false;
+  if (!proc) return isAgentConnected();
   manuallyStoppedIds.add(accountId);
   try {
     const pid = proc.pid;
@@ -354,6 +357,111 @@ export async function loginAccount(account: Account, options: LoginOptions = {})
   const password = decrypt(account.password);
   const provider = account.provider; // kiro | codebuddy | canva
   const headless = options.headless ?? config.headless;
+
+  // If agent is connected, delegate execution to the agent
+  if (isAgentConnected()) {
+    try {
+      const startLog = addAuthLog({
+        type: "login_progress",
+        accountId: account.id,
+        email: account.email,
+        provider,
+        step: "agent_delegation",
+        message: `Delegating ${provider} login for ${account.email} to Windows Local Agent...`,
+      });
+      broadcast({
+        type: "login_progress",
+        data: {
+          logId: startLog.id,
+          id: account.id,
+          email: account.email,
+          provider,
+          step: "agent_delegation",
+          message: `Delegating ${provider} login for ${account.email} to Windows Local Agent...`,
+        },
+      });
+
+      const result = await delegateToAgent(account.id, {
+        accountId: account.id,
+        email: account.email,
+        passwordHex: password,
+        provider,
+        headless,
+        browserEngine: options.browserEngine || config.browserEngine,
+      });
+
+      if (!result.success) {
+        const errorMsg = result.error || "Agent login failed";
+        await markAccountError(account.id, errorMsg);
+        return { success: false, error: errorMsg, noRetry: result.noRetry };
+      }
+
+      const credentials = result.tokens || {};
+      const quota = result.quota || {};
+
+      let { limit: quotaLimit, remaining: quotaRemaining } = parseQuota(quota);
+      let quotaMetadata: Record<string, unknown> = quota;
+
+      if ((quotaLimit <= 0 || quotaRemaining <= 0) && account.provider === "codebuddy") {
+        try {
+          const syncedQuota = await fetchProviderQuota(account, credentials as Record<string, string>);
+          if (syncedQuota) {
+            quotaLimit = syncedQuota.limit;
+            quotaRemaining = syncedQuota.remaining;
+            quotaMetadata = { ...quota, syncedQuota, quotaSource: "provider.fetchQuota" };
+          }
+        } catch (error) {
+          quotaMetadata = {
+            ...quota,
+            quotaSyncError: error instanceof Error ? error.message : String(error),
+          };
+        }
+      }
+
+      await db
+        .update(accounts)
+        .set({
+          status: "active",
+          tokens: credentials as unknown,
+          quotaLimit,
+          quotaRemaining,
+          lastLoginAt: new Date(),
+          errorMessage: null,
+          metadata: quotaMetadata as unknown,
+          updatedAt: new Date(),
+        })
+        .where(eq(accounts.id, account.id));
+
+      const successLog = addAuthLog({
+        type: "login_success",
+        accountId: account.id,
+        email: account.email,
+        provider,
+        step: "success",
+        message: `Login success for ${provider}/${account.email}`,
+        data: { quotaLimit, quotaRemaining },
+      });
+
+      broadcast({
+        type: "login_success",
+        data: {
+          logId: successLog.id,
+          id: account.id,
+          email: account.email,
+          provider,
+          quotaLimit,
+          quotaRemaining,
+        },
+      });
+
+      return { success: true, tokens: credentials, quota };
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      await markAccountError(account.id, errorMsg);
+      return { success: false, error: errorMsg };
+    }
+  }
+
   const streamedEvents: ScriptEvent[] = [];
 
   try {

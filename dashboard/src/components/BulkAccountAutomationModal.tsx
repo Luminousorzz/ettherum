@@ -64,7 +64,7 @@ export default function BulkAccountAutomationModal({
   const [bulkText, setBulkText] = useState("");
   const [concurrency, setConcurrency] = useState(2);
   const [browserEngine, setBrowserEngine] = useState("camoufox");
-  const [headless, setHeadless] = useState(false); // Default false for visible browser!
+  const [headless, setHeadless] = useState(true); // Default true for hidden browser!
   
   const [importing, setImporting] = useState(false);
   const [isRunning, setIsRunning] = useState(false);

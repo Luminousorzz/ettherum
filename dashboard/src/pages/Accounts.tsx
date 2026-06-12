@@ -77,7 +77,7 @@ export default function Accounts() {
   const [settingsMap, setSettingsMap] = useState<Record<string, string>>({});
   const [now, setNow] = useState<number>(Date.now());
 
-  const [addForm, setAddForm] = useState({ email: "", password: "", provider: "kiro" as Provider, browserEngine: "camoufox", headless: false });
+  const [addForm, setAddForm] = useState({ email: "", password: "", provider: "kiro" as Provider, browserEngine: "camoufox", headless: true });
   const [addDialogProvider, setAddDialogProvider] = useState<Provider | null>(null);
   const [instantTokens, setInstantTokens] = useState("");
   const [cookieValue, setCookieValue] = useState("");
@@ -292,7 +292,7 @@ export default function Accounts() {
       const payload: any = { email: addForm.email, password: addForm.password, provider: addDialogProvider, headless: addForm.headless, browserEngine: addForm.browserEngine };
       await createAccount(payload);
       showSuccess("Account added and bot login started.");
-      setAddForm({ email: "", password: "", provider: "kiro", browserEngine: "camoufox", headless: false });
+      setAddForm({ email: "", password: "", provider: "kiro", browserEngine: "camoufox", headless: true });
       setAddDialogProvider(null);
       await load();
       navigate("/bot-logs");

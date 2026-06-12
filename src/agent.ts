@@ -1,13 +1,27 @@
-import { config } from "./config";
+import path from "path";
+import { existsSync } from "fs";
 import type { AgentJobResult } from "./ws";
 
-const WS_URL = process.env.POOLPROX_WS_URL || `ws://localhost:${config.port}/ws`;
+// Resolve paths relative to the executable's directory
+const exeDir = path.dirname(process.execPath || Bun.main);
+
+const WS_URL = process.env.POOLPROX_WS_URL || "ws://localhost:1930/ws";
 const RECONNECT_DELAY = 3000;
+
+// Search for local virtualenv python, otherwise fallback to system python
+const localPythonPath = path.resolve(exeDir, "scripts/auth/.venv/Scripts/python.exe");
+const pythonPath = existsSync(localPythonPath) 
+  ? localPythonPath 
+  : (process.platform === "win32" ? "python" : "python3");
+
+const authScriptPath = path.resolve(exeDir, "scripts/auth/login.py");
+const authScriptCwd = path.resolve(exeDir, "scripts/auth");
+const defaultBrowserEngine = process.env.BROWSER_ENGINE || "camoufox";
 
 console.log(`[Agent] Starting Windows Local Runner Agent...`);
 console.log(`[Agent] Target Server WS URL: ${WS_URL}`);
-console.log(`[Agent] Python Path: ${config.pythonPath}`);
-console.log(`[Agent] Python Script: ${config.authScriptPath}`);
+console.log(`[Agent] Python Path: ${pythonPath}`);
+console.log(`[Agent] Python Script: ${authScriptPath}`);
 
 const activeProcesses = new Map<number, ReturnType<typeof Bun.spawn>>();
 const sentResult = new Map<number, boolean>();
@@ -79,8 +93,8 @@ function connect() {
 
           const proc = Bun.spawn(
             [
-              config.pythonPath,
-              config.authScriptPath,
+              pythonPath,
+              authScriptPath,
               "--email",
               email,
               "--password",
@@ -97,9 +111,9 @@ function connect() {
                 PYTHONUNBUFFERED: "1",
                 BATCHER_ENABLE_CAMOUFOX: "true",
                 BATCHER_CAMOUFOX_HEADLESS: runHeadless,
-                BATCHER_BROWSER_ENGINE: browserEngine || config.browserEngine,
+                BATCHER_BROWSER_ENGINE: browserEngine || defaultBrowserEngine,
               },
-              cwd: config.authScriptCwd,
+              cwd: authScriptCwd,
             }
           );
 

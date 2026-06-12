@@ -8,6 +8,7 @@
     "dev": "bun scripts/start.ts",
     "agent": "bun run src/agent.ts",
     "build": "cd dashboard && bun run build",
+    "build:agent": "bun scripts/build-agent-release.ts",
     "migrate": "bun src/db/migrate.ts",
     "setup": "bash install.sh",
     "setup:win": "powershell -ExecutionPolicy Bypass -File install.ps1"

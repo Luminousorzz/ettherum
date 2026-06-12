@@ -52,7 +52,7 @@ tempMailRouter.post("/domains", async (c) => {
     }).returning();
     return c.json(inserted);
   } catch (err: any) {
-    if (err.message?.includes("UNIQUE")) {
+    if (err.message?.toLowerCase().includes("unique")) {
       return c.json({ error: "Domain is already configured" }, 409);
     }
     return c.json({ error: "Failed to create domain" }, 500);
@@ -118,7 +118,7 @@ tempMailRouter.post("/addresses", async (c) => {
     }).returning();
     return c.json(inserted);
   } catch (err: any) {
-    if (err.message?.includes("UNIQUE")) {
+    if (err.message?.toLowerCase().includes("unique")) {
       return c.json({ error: "Email address already exists" }, 409);
     }
     return c.json({ error: "Failed to generate address" }, 500);

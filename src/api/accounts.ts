@@ -500,7 +500,7 @@ accountsRouter.post("/", async (c) => {
   } catch (error) {
     if (
       error instanceof Error &&
-      (error.message.includes("unique") || error.message.includes("duplicate"))
+      (error.message.toLowerCase().includes("unique") || error.message.toLowerCase().includes("duplicate"))
     ) {
       return c.json({ error: "Account with this email already exists for this provider" }, 409);
     }

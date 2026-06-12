@@ -11,7 +11,7 @@ import {
   DialogTitle as DTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
-import { Plus, Upload, RefreshCw, Play, RotateCcw, Flame, ChevronDown, Loader2, Laptop } from "lucide-react";
+import { Plus, Upload, RefreshCw, Play, RotateCcw, Flame, ChevronDown, Loader2, Laptop, Download } from "lucide-react";
 import ActiveAutomationPanel from "@/components/ActiveAutomationPanel";
 import { Progress } from "@/components/ui/progress";
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "@/components/ui/tooltip";
@@ -736,6 +736,12 @@ export default function Accounts() {
             <span className={`w-2 h-2 rounded-full ${agentConnected ? "bg-emerald-500 animate-pulse" : "bg-amber-500"}`} />
             Windows Runner: {agentConnected ? "Online" : "Offline"}
           </div>
+
+          <Button variant="outline" size="sm" asChild>
+            <a href="/api/agent/download" download="etteum-agent.exe" className="flex items-center gap-2">
+              <Download className="w-4 h-4" /> Download Agent
+            </a>
+          </Button>
 
           <Button variant="outline" size="sm" onClick={load} disabled={loading}>
             <RefreshCw className="w-4 h-4 mr-2" /> Refresh

@@ -111,7 +111,7 @@ app.use("/v1/*", async (c, next) => {
 // API Key authentication for management API
 app.use("/api/*", async (c, next) => {
   // Allow health check, info, key validation, and incoming temp mail webhook without auth
-  if (c.req.path === "/api/health" || c.req.path === "/api/info" || c.req.path === "/api/keys/test" || c.req.path === "/api/temp-mail/incoming") {
+  if (c.req.path === "/api/health" || c.req.path === "/api/info" || c.req.path === "/api/keys/test" || c.req.path === "/api/temp-mail/incoming" || c.req.path === "/api/agent/download") {
     await next();
     return;
   }
@@ -134,6 +134,21 @@ app.use("/api/*", async (c, next) => {
 app.route("/", proxyRouter); // /v1/chat/completions, /v1/models
 app.route("/api", apiRouter); // /api/accounts, /api/settings, /api/stats
 app.route("/api/auth", authRouter); // /api/auth/login, /api/auth/queue
+
+// Download agent binary
+app.get("/api/agent/download", async (c) => {
+  const agentPath = path.resolve(import.meta.dir, "../dist/etteum-agent.exe");
+  const file = Bun.file(agentPath);
+  if (await file.exists()) {
+    return new Response(file, {
+      headers: {
+        "Content-Disposition": 'attachment; filename="etteum-agent.exe"',
+        "Content-Type": "application/octet-stream",
+      },
+    });
+  }
+  return c.text("Agent executable not compiled on server yet. Please run 'bun run build:agent' on server.", 404);
+});
 
 // Health/info endpoint (moved from / to /api/health)
 app.get("/api/info", (c) => {

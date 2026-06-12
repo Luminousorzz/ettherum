@@ -1,21 +1,156 @@
 import path from "path";
-import { existsSync } from "fs";
+import fs, { existsSync } from "fs";
 import type { AgentJobResult } from "./ws";
+import { pythonAssetsZipBase64 } from "./agent-assets";
 
-// Resolve paths relative to the executable's directory
-const exeDir = path.dirname(process.execPath || Bun.main);
+const isWin = process.platform === "win32";
+const dataDir = isWin 
+  ? path.join(process.env.APPDATA || "C:\\temp", "etteum-agent") 
+  : path.join(process.env.HOME || "/tmp", ".etteum-agent");
 
-const WS_URL = process.env.POOLPROX_WS_URL || "ws://localhost:1930/ws";
+// Ensure data directory exists
+fs.mkdirSync(dataDir, { recursive: true });
+
+// 1. Sync python assets
+if (pythonAssetsZipBase64) {
+  const assetsZipPath = path.join(dataDir, "assets.zip");
+  fs.writeFileSync(assetsZipPath, Buffer.from(pythonAssetsZipBase64, "base64"));
+  
+  console.log("[Agent] Syncing automation scripts...");
+  if (isWin) {
+    const extractCmd = `Expand-Archive -Path '${assetsZipPath}' -DestinationPath '${dataDir}' -Force`;
+    await Bun.spawn(["powershell", "-Command", extractCmd]).exited;
+  } else {
+    await Bun.spawn(["unzip", "-o", assetsZipPath, "-d", dataDir]).exited;
+  }
+  
+  try {
+    fs.unlinkSync(assetsZipPath);
+  } catch {}
+}
+
+// 2. Set up Startup/Boot Auto-Run if on Windows
+const markerPath = path.join(dataDir, ".autorun-configured");
+if (!existsSync(markerPath) && isWin) {
+  const input = prompt("Do you want this agent to start automatically when Windows boots? [Y/n]:", "Y");
+  const choice = (input || "Y").trim().toUpperCase();
+  if (choice === "Y" || choice === "YES") {
+    console.log("Setting up Windows Startup shortcut...");
+    try {
+      const shortcutPath = path.join(
+        process.env.APPDATA || "",
+        "Microsoft\\Windows\\Start Menu\\Programs\\Startup\\etteum-agent.lnk"
+      );
+      const exePath = process.execPath;
+      const workingDir = path.dirname(exePath);
+      const createShortcutCmd = `$WshShell = New-Object -ComObject WScript.Shell; $Shortcut = $WshShell.CreateShortcut('${shortcutPath}'); $Shortcut.TargetPath = '${exePath}'; $Shortcut.WorkingDirectory = '${workingDir}'; $Shortcut.Save()`;
+      await Bun.spawn(["powershell", "-Command", createShortcutCmd]).exited;
+      console.log("Startup shortcut created successfully!");
+    } catch (err) {
+      console.error("Failed to create startup shortcut:", err);
+    }
+  }
+  fs.writeFileSync(markerPath, "true");
+}
+
+// 3. Configure/Prompt Server WebSocket URL
+let WS_URL = process.env.POOLPROX_WS_URL;
+const envPath = path.join(dataDir, ".env");
+if (!WS_URL && existsSync(envPath)) {
+  const envContent = fs.readFileSync(envPath, "utf-8");
+  const match = envContent.match(/POOLPROX_WS_URL=(.+)/);
+  if (match) WS_URL = match[1].trim();
+}
+if (!WS_URL) {
+  console.log("===================================================");
+  console.log("  Etteum Local Runner Agent Setup");
+  console.log("===================================================");
+  console.log("");
+  const input = prompt("Enter Server WebSocket URL [default: ws://localhost:1930/ws]:", "ws://localhost:1930/ws");
+  WS_URL = input || "ws://localhost:1930/ws";
+  fs.writeFileSync(envPath, `POOLPROX_WS_URL=${WS_URL}\n`);
+}
+
 const RECONNECT_DELAY = 3000;
 
-// Search for local virtualenv python, otherwise fallback to system python
-const localPythonPath = path.resolve(exeDir, "scripts/auth/.venv/Scripts/python.exe");
-const pythonPath = existsSync(localPythonPath) 
-  ? localPythonPath 
-  : (process.platform === "win32" ? "python" : "python3");
+// 4. Resolve Python paths
+const venvDir = path.resolve(dataDir, "scripts/auth/.venv");
+const localPythonPath = isWin
+  ? path.join(venvDir, "Scripts/python.exe")
+  : path.join(venvDir, "bin/python");
 
-const authScriptPath = path.resolve(exeDir, "scripts/auth/login.py");
-const authScriptCwd = path.resolve(exeDir, "scripts/auth");
+let systemPython = "";
+try {
+  const p = Bun.spawnSync([isWin ? "python" : "python3", "--version"]);
+  if (p.success) {
+    systemPython = isWin ? "python" : "python3";
+  }
+} catch {}
+
+// 5. Python Installation check/winget setup
+if (!existsSync(localPythonPath)) {
+  if (!systemPython && isWin) {
+    console.log("Python was not found in system PATH.");
+    const input = prompt("Would you like to install Python 3.12 automatically via winget? [Y/n]:", "Y");
+    const choice = (input || "Y").trim().toUpperCase();
+    if (choice === "Y" || choice === "YES") {
+      console.log("Installing Python via winget (this might open a User Account Control prompt)...");
+      const proc = Bun.spawn([
+        "winget", "install", "-e", "--id", "Python.Python.3.12", "--silent", "--accept-source-agreements", "--accept-package-agreements"
+      ]);
+      await proc.exited;
+      
+      // Re-verify python
+      try {
+        const p = Bun.spawnSync(["python", "--version"]);
+        if (p.success) {
+          systemPython = "python";
+          console.log("Python installed successfully!");
+        }
+      } catch {}
+    }
+  }
+
+  if (!systemPython) {
+    console.error("Error: Python 3.10+ is required to run the agent.");
+    console.error("Please install Python from https://www.python.org/downloads/ and add it to your PATH.");
+    prompt("Press Enter to exit...");
+    process.exit(1);
+  }
+
+  // Set up Virtualenv, dependencies, playwright, camoufox
+  console.log("===================================================");
+  console.log("  Setting up Python Virtual Environment & Browsers");
+  console.log("  (This may take a few minutes...)");
+  console.log("===================================================");
+  
+  const scriptsAuthDir = path.resolve(dataDir, "scripts/auth");
+  
+  console.log("[1/4] Creating virtual environment...");
+  const venvProc = Bun.spawn([systemPython, "-m", "venv", ".venv"], { cwd: scriptsAuthDir, stdout: "inherit", stderr: "inherit" });
+  await venvProc.exited;
+  
+  console.log("[2/4] Installing dependencies...");
+  const pipPath = isWin ? path.join(venvDir, "Scripts/pip.exe") : path.join(venvDir, "bin/pip");
+  const pipProc = Bun.spawn([pipPath, "install", "-r", "requirements.txt"], { cwd: scriptsAuthDir, stdout: "inherit", stderr: "inherit" });
+  await pipProc.exited;
+  
+  console.log("[3/4] Installing browser binaries...");
+  const playwrightPath = isWin ? path.join(venvDir, "Scripts/playwright.exe") : path.join(venvDir, "bin/playwright");
+  const pwProc = Bun.spawn([playwrightPath, "install", "chromium"], { cwd: scriptsAuthDir, stdout: "inherit", stderr: "inherit" });
+  await pwProc.exited;
+
+  console.log("[4/4] Downloading Camoufox browser binaries...");
+  const pyPath = isWin ? path.join(venvDir, "Scripts/python.exe") : path.join(venvDir, "bin/python");
+  const cfProc = Bun.spawn([pyPath, "-m", "camoufox", "fetch"], { cwd: scriptsAuthDir, stdout: "inherit", stderr: "inherit" });
+  await cfProc.exited;
+  
+  console.log("Setup completed successfully!");
+}
+
+const pythonPath = existsSync(localPythonPath) ? localPythonPath : systemPython;
+const authScriptPath = path.resolve(dataDir, "scripts/auth/login.py");
+const authScriptCwd = path.resolve(dataDir, "scripts/auth");
 const defaultBrowserEngine = process.env.BROWSER_ENGINE || "camoufox";
 
 console.log(`[Agent] Starting Windows Local Runner Agent...`);

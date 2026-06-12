@@ -13,15 +13,18 @@ fs.mkdirSync(dataDir, { recursive: true });
 
 // 1. Sync python assets
 if (pythonAssetsZipBase64) {
+  const scriptsAuthDir = path.join(dataDir, "scripts/auth");
+  fs.mkdirSync(scriptsAuthDir, { recursive: true });
+  
   const assetsZipPath = path.join(dataDir, "assets.zip");
   fs.writeFileSync(assetsZipPath, Buffer.from(pythonAssetsZipBase64, "base64"));
   
   console.log("[Agent] Syncing automation scripts...");
   if (isWin) {
-    const extractCmd = `Expand-Archive -Path '${assetsZipPath}' -DestinationPath '${dataDir}' -Force`;
+    const extractCmd = `Expand-Archive -Path '${assetsZipPath}' -DestinationPath '${scriptsAuthDir}' -Force`;
     await Bun.spawn(["powershell", "-Command", extractCmd]).exited;
   } else {
-    await Bun.spawn(["unzip", "-o", assetsZipPath, "-d", dataDir]).exited;
+    await Bun.spawn(["unzip", "-o", assetsZipPath, "-d", scriptsAuthDir]).exited;
   }
   
   try {

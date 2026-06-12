@@ -12,7 +12,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { Plus, Upload, RefreshCw, Play, RotateCcw, Flame, ChevronDown, Loader2, Laptop } from "lucide-react";
-import BulkAccountAutomationModal from "@/components/BulkAccountAutomationModal";
+import ActiveAutomationPanel from "@/components/ActiveAutomationPanel";
 import { Progress } from "@/components/ui/progress";
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "@/components/ui/tooltip";
 import { useWsEvent } from "@/hooks/useWebSocket";
@@ -106,8 +106,6 @@ export default function Accounts() {
     Map<string, { status: 'testing' | 'success' | 'error'; latencyMs?: number; error?: string }>
   >(new Map());
   const [agentConnected, setAgentConnected] = useState(false);
-  const [bulkAutomationOpen, setBulkAutomationOpen] = useState(false);
-  const [bulkAutomationProvider, setBulkAutomationProvider] = useState<Provider>("kiro");
   const messageTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const codexOauthPopupRef = useRef<Window | null>(null);
   const codexOauthPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -344,7 +342,6 @@ export default function Accounts() {
       setBulkText("");
       setAddDialogProvider(null);
       await load();
-      navigate("/bot-logs");
     } catch (err) { showError(err); }
   }
 
@@ -746,9 +743,6 @@ export default function Accounts() {
           <Button variant="outline" size="sm" onClick={handleLoginAll}>
             <Play className="w-4 h-4 mr-2" /> Login Pending
           </Button>
-          <Button variant="default" size="sm" onClick={() => { setBulkAutomationProvider("kiro"); setBulkAutomationOpen(true); }}>
-            <Laptop className="w-4 h-4 mr-2" /> Bulk Automation
-          </Button>
         </div>
       </div>
 
@@ -759,12 +753,8 @@ export default function Accounts() {
         </div>
       )}
 
-      {/* Queue status - Login only */}
-      {(Number(queue?.active || 0) > 0 || Number(queue?.queued || 0) > 0) && (
-        <div className="rounded-md border border-[var(--border)] bg-[var(--card)] p-3 text-xs text-[var(--muted-foreground)]">
-          Login: {Number(queue?.active || 0)} running, {Number(queue?.queued || 0)} queued
-        </div>
-      )}
+      {/* Active Automation Panel */}
+      <ActiveAutomationPanel />
 
       {/* Provider cards */}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
@@ -1189,14 +1179,8 @@ export default function Accounts() {
               {addDialogProvider === "codex" && <button onClick={() => handleSetCodexMode("pat")}
                 className={`flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors ${addMode === "pat" ? "bg-[var(--background)] text-[var(--foreground)] shadow-sm" : "text-[var(--muted-foreground)]"}`}
               >OAuth Login</button>}
-              <button onClick={() => {
-                if (addDialogProvider) {
-                  setBulkAutomationProvider(addDialogProvider);
-                  setBulkAutomationOpen(true);
-                  setAddDialogProvider(null);
-                }
-              }}
-                className={`flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors text-[var(--muted-foreground)]`}
+              <button onClick={() => addDialogProvider === "codex" ? handleSetCodexMode("bulk") : setAddMode("bulk")}
+                className={`flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors ${addMode === "bulk" ? "bg-[var(--background)] text-[var(--foreground)] shadow-sm" : "text-[var(--muted-foreground)]"}`}
               >Bulk (Email|Pass)</button>
               <button onClick={() => addDialogProvider === "codex" ? handleSetCodexMode("single") : setAddMode("single")}
                 className={`flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors ${addMode === "single" ? "bg-[var(--background)] text-[var(--foreground)] shadow-sm" : "text-[var(--muted-foreground)]"}`}
@@ -1207,14 +1191,8 @@ export default function Accounts() {
               <button onClick={() => setAddMode("pat")}
                 className={`flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors ${addMode === "pat" ? "bg-[var(--background)] text-[var(--foreground)] shadow-sm" : "text-[var(--muted-foreground)]"}`}
               >PAT (Token)</button>
-              <button onClick={() => {
-                if (addDialogProvider) {
-                  setBulkAutomationProvider(addDialogProvider);
-                  setBulkAutomationOpen(true);
-                  setAddDialogProvider(null);
-                }
-              }}
-                className={`flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors text-[var(--muted-foreground)]`}
+              <button onClick={() => setAddMode("bulk")}
+                className={`flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors ${addMode === "bulk" ? "bg-[var(--background)] text-[var(--foreground)] shadow-sm" : "text-[var(--muted-foreground)]"}`}
               >Bulk (Email|Pass)</button>
               <button onClick={() => setAddMode("single")}
                 className={`flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors ${addMode === "single" ? "bg-[var(--background)] text-[var(--foreground)] shadow-sm" : "text-[var(--muted-foreground)]"}`}
@@ -1222,14 +1200,8 @@ export default function Accounts() {
             </div>
           ) : (
             <div className="flex gap-1 rounded-md bg-[var(--secondary)] p-1">
-              <button onClick={() => {
-                if (addDialogProvider) {
-                  setBulkAutomationProvider(addDialogProvider);
-                  setBulkAutomationOpen(true);
-                  setAddDialogProvider(null);
-                }
-              }}
-                className={`flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors text-[var(--muted-foreground)]`}
+              <button onClick={() => setAddMode("bulk")}
+                className={`flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors ${addMode === "bulk" ? "bg-[var(--background)] text-[var(--foreground)] shadow-sm" : "text-[var(--muted-foreground)]"}`}
               >Bulk (Email|Pass)</button>
               <button onClick={() => setAddMode("single")}
                 className={`flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors ${addMode === "single" ? "bg-[var(--background)] text-[var(--foreground)] shadow-sm" : "text-[var(--muted-foreground)]"}`}
@@ -1412,13 +1384,6 @@ export default function Accounts() {
           )}
         </DialogContent>
       </Dialog>
-      <BulkAccountAutomationModal
-        isOpen={bulkAutomationOpen}
-        onClose={() => setBulkAutomationOpen(false)}
-        provider={bulkAutomationProvider}
-        serviceName={labelProvider(bulkAutomationProvider)}
-        onSuccess={load}
-      />
     </div>
   );
 }

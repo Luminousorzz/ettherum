@@ -532,6 +532,16 @@ export async function loginAccount(account: Account, options: LoginOptions = {})
       streamedEvents.push(event);
       if (event.type === "progress") {
         emitProgressLog(account, event);
+      } else if (event.type === "screenshot") {
+        broadcast({
+          type: "live_screenshot",
+          data: {
+            accountId: account.id,
+            provider: event.provider || provider,
+            email: event.email || account.email,
+            imageData: (event as any).imageData,
+          },
+        });
       } else if (event.type === "upgrade_card_result") {
         // Immediately update card status in DB when declined — so next account won't retry it
         const cardLast4 = (event as any).card_last4;

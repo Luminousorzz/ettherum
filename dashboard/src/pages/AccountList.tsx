@@ -4,7 +4,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { ArrowLeft, Search, Trash2, RefreshCw, RotateCcw, ExternalLink, ArrowUpDown, ArrowUp, ArrowDown, CheckCircle2, XCircle } from "lucide-react";
+import { ArrowLeft, Search, Trash2, RefreshCw, RotateCcw, ExternalLink, ArrowUpDown, ArrowUp, ArrowDown, CheckCircle2, XCircle, Laptop } from "lucide-react";
+import ActiveAutomationPanel from "@/components/ActiveAutomationPanel";
 import { formatDateTimeID } from "@/lib/utils";
 import { useTimedMessage } from "@/hooks/useTimedMessage";
 import { useWsEvent } from "@/hooks/useWebSocket";
@@ -311,6 +312,9 @@ export default function AccountList() {
           {message || error}
         </div>
       )}
+
+      {/* Active Automation Dashboard for this provider */}
+      <ActiveAutomationPanel provider={provider as any} />
 
       {/* Search & Filter */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">

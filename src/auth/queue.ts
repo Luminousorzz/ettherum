@@ -153,6 +153,8 @@ class LoginQueue {
       totalSuccess: this.totalSuccess,
       totalFailed: this.totalFailed,
       retrying: this.retryTimers.size,
+      activeAccountIds: [...this.activeAccountIds],
+      queuedAccountIds: this.queue.map(item => item.accountId),
     };
   }
 

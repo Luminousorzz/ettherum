@@ -163,6 +163,8 @@ case "${1:-}" in
     if [ -n "${2:-}" ]; then tail -n "$2" "$LOG_FILE"; else tail -f "$LOG_FILE"; fi
     ;;
   build)
+    echo "🔨 Compiling Windows Agent..."
+    bun run build:agent
     echo "🔨 Building dashboard..."
     (cd "$PROJECT_DIR/dashboard" && bun run build)
     do_stop; sleep 1; do_start
@@ -179,6 +181,8 @@ case "${1:-}" in
     git pull origin main || git pull
     echo "🔨 Installing dependencies..."
     bun install
+    echo "🔨 Compiling Windows Agent..."
+    bun run build:agent
     echo "🔨 Rebuilding dashboard..."
     (cd "$PROJECT_DIR/dashboard" && bun install && bun run build)
     echo "🔄 Running migrations..."

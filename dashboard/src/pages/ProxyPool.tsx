@@ -42,6 +42,11 @@ export default function ProxyPool() {
   const [scrapeVerify, setScrapeVerify] = useState(true);
   const [scraping, setScraping] = useState(false);
 
+  // Import from URL controls
+  const [importUrl, setImportUrl] = useState("");
+  const [importProtocol, setImportProtocol] = useState<"http" | "socks5">("http");
+  const [importingUrl, setImportingUrl] = useState(false);
+
   const loadPool = useCallback(async () => {
     try {
       const data = await fetchApi<ProxyPoolStatus>("/api/proxy-pool/pool");
@@ -120,6 +125,34 @@ export default function ProxyPool() {
       loadPool();
     } catch (e: any) {
       setMessage(e.message || "Failed to add proxies");
+    }
+  };
+
+  const handleUrlImport = async () => {
+    if (!importUrl.trim()) {
+      setMessage("Enter API URL first");
+      return;
+    }
+
+    setImportingUrl(true);
+    try {
+      const result = await fetchApi<{ found: number; added: number; skipped: number }>(
+        "/api/proxy-pool/pool/import-url",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            url: importUrl.trim(),
+            defaultProtocol: importProtocol,
+          }),
+        }
+      );
+      setImportUrl("");
+      setMessage(`Imported successfully: found ${result.found}, added ${result.added} new proxies (${result.skipped} skipped/duplicates)`);
+      loadPool();
+    } catch (e: any) {
+      setMessage(e.message || "Failed to import from URL");
+    } finally {
+      setImportingUrl(false);
     }
   };
 
@@ -272,6 +305,42 @@ export default function ProxyPool() {
             <Upload className="w-4 h-4 mr-2" />
             Add to Pool
           </Button>
+        </CardContent>
+      </Card>
+
+      {/* Import from URL (Webshare) */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <Globe className="w-4 h-4" />
+            Import from API URL (Webshare, etc.)
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-sm text-[var(--muted-foreground)]">
+            Import a list of proxies by fetching a download link from Webshare (or similar API). The backend will download, parse, and add new proxies.
+          </p>
+          <div className="flex flex-col sm:flex-row gap-3">
+            <input
+              type="text"
+              className="flex-1 px-3 py-2 rounded-md border border-[var(--border)] bg-[var(--background)] text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)] font-mono"
+              placeholder="https://proxy.webshare.io/api/v2/proxy/list/download/..."
+              value={importUrl}
+              onChange={(e) => setImportUrl(e.target.value)}
+            />
+            <select
+              className="w-full sm:w-[130px] px-3 py-2 rounded-md border border-[var(--border)] bg-[var(--background)] text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+              value={importProtocol}
+              onChange={(e) => setImportProtocol(e.target.value as "http" | "socks5")}
+            >
+              <option value="http">HTTP / HTTPS</option>
+              <option value="socks5">SOCKS5</option>
+            </select>
+            <Button onClick={handleUrlImport} disabled={importingUrl}>
+              <Upload className={`w-4 h-4 mr-2 ${importingUrl ? "animate-pulse" : ""}`} />
+              {importingUrl ? "Importing..." : "Import"}
+            </Button>
+          </div>
         </CardContent>
       </Card>
 

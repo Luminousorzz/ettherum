@@ -199,3 +199,99 @@ proxyPoolRouter.post("/scrape", async (c) => {
     skipped: verifiedCount - toInsert.length,
   });
 });
+
+function parseProxyLine(line: string, defaultProtocol: "http" | "socks5" = "http"): string | null {
+  const trimmed = line.trim();
+  if (!trimmed || trimmed.startsWith("#") || trimmed.startsWith("//")) return null;
+
+  // If already has a full protocol scheme
+  if (/^(https?|socks[45]):\/\//i.test(trimmed)) {
+    return trimmed;
+  }
+
+  // Parse ip:port:username:password or ip:port
+  const parts = trimmed.split(":");
+  if (parts.length === 4) {
+    const [ip, port, user, pass] = parts;
+    return `${defaultProtocol}://${user}:${pass}@${ip}:${port}`;
+  } else if (parts.length === 2) {
+    const [ip, port] = parts;
+    return `${defaultProtocol}://${ip}:${port}`;
+  }
+
+  // Fallback if line contains both '@' and ':'
+  if (trimmed.includes("@") && trimmed.includes(":")) {
+    return `${defaultProtocol}://${trimmed}`;
+  }
+
+  return null;
+}
+
+proxyPoolRouter.post("/pool/import-url", async (c) => {
+  const body = await c.req.json<{ url: string; defaultProtocol?: "http" | "socks5" }>();
+  if (!body.url) {
+    return c.json({ error: "url is required" }, 400);
+  }
+
+  const defaultProtocol = body.defaultProtocol || "http";
+
+  try {
+    const response = await fetch(body.url);
+    if (!response.ok) {
+      return c.json({ error: `Failed to fetch URL: ${response.statusText}` }, 400);
+    }
+
+    const text = await response.text();
+    const lines = text.split(/\r?\n/);
+    const parsedUrls: string[] = [];
+
+    for (const line of lines) {
+      const parsed = parseProxyLine(line, defaultProtocol);
+      if (parsed) {
+        parsedUrls.push(parsed);
+      }
+    }
+
+    if (parsedUrls.length === 0) {
+      return c.json({ error: "No valid proxies found in the response text" }, 400);
+    }
+
+    // Get existing proxies from database to deduplicate in memory
+    const existing = await db.select({ url: proxyPool.url }).from(proxyPool);
+    const existingSet = new Set(existing.map((e) => e.url));
+
+    const uniqueImported = Array.from(new Set(parsedUrls));
+    const toInsert = uniqueImported.filter((url) => !existingSet.has(url));
+
+    let added = 0;
+    if (toInsert.length > 0) {
+      await db.insert(proxyPool).values(
+        toInsert.map((url) => {
+          const type = url.startsWith("socks5://") ? "socks5" : "http";
+          let label = "webshare-import";
+          try {
+            label = new URL(url).hostname;
+          } catch {}
+          return {
+            url,
+            type,
+            label,
+            status: "active",
+          };
+        })
+      );
+      added = toInsert.length;
+      invalidateProxyCache();
+    }
+
+    return c.json({
+      success: true,
+      found: uniqueImported.length,
+      added,
+      skipped: uniqueImported.length - added,
+    });
+  } catch (e: any) {
+    return c.json({ error: `Error importing from URL: ${e.message}` }, 500);
+  }
+});
+

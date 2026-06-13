@@ -264,12 +264,50 @@ class OutlookProviderAdapter(ProviderAdapter):
             await asyncio.sleep(5)
 
             # 5. Handle CAPTCHA / Redirect
+            async def find_press_and_hold_button():
+                for frame in page.frames:
+                    try:
+                        buttons = await frame.query_selector_all('button, div[role="button"]')
+                        for btn in buttons:
+                            if await btn.is_visible():
+                                text = await btn.inner_text()
+                                aria_label = await btn.get_attribute("aria-label") or ""
+                                combined = (text + " " + aria_label).lower()
+                                if "press and hold" in combined or "tekan dan tahan" in combined:
+                                    return btn
+                    except Exception:
+                        pass
+                return None
+
             success = False
             for _ in range(120): # Wait up to 3 minutes for user to solve CAPTCHA and redirect
                 current_url = page.url
                 if "outlook.live.com/mail" in current_url or "outlook.office.com" in current_url:
                     success = True
                     break
+                
+                try:
+                    button = await find_press_and_hold_button()
+                    if button:
+                        print("Press and hold CAPTCHA detected! Handling it...", flush=True)
+                        bounding_box = await button.bounding_box()
+                        if bounding_box:
+                            # Press a bit to the right edge but not too far to the edge (e.g. 80% width)
+                            x = bounding_box['x'] + bounding_box['width'] * 0.8
+                            y = bounding_box['y'] + bounding_box['height'] / 2
+                            
+                            print(f"Moving mouse to ({x}, {y}) and holding button...", flush=True)
+                            await page.mouse.move(x, y)
+                            await page.mouse.down()
+                            hold_duration = random.uniform(11.0, 14.5)
+                            print(f"Holding for {hold_duration:.2f} seconds...", flush=True)
+                            await asyncio.sleep(hold_duration)
+                            await page.mouse.up()
+                            print("Released button. Waiting for next step...", flush=True)
+                            await asyncio.sleep(2)
+                except Exception as e:
+                    print(f"Warning: error handling Press and Hold CAPTCHA: {e}", flush=True)
+
                 await asyncio.sleep(1.5)
 
             if not success:

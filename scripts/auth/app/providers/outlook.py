@@ -181,49 +181,63 @@ class OutlookProviderAdapter(ProviderAdapter):
             months_names = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
             birth_month_name = months_names[int(birth_month_val) - 1]
 
-            # Helper to click custom Microsoft Dropdown/Combobox and select value
-            async def select_fluent_dropdown(button_selector: str, option_text: str):
-                await page.click(button_selector)
+            # Helper to click custom Microsoft Dropdown/Combobox and select value by index (language-independent)
+            async def select_fluent_dropdown_by_index(button_selector: str, target_index: int):
+                await page.wait_for_selector(button_selector, timeout=10000)
+                button = await page.query_selector(button_selector)
+                if not button:
+                    raise Exception(f"Dropdown button {button_selector} not found")
+                await button.click()
                 await asyncio.sleep(1)
-                try:
-                    await page.wait_for_selector('[role="option"], [role="listbox"]', timeout=5000)
-                    options = await page.query_selector_all('[role="option"], [role="listitem"]')
-                    for opt in options:
-                        text = await opt.inner_text()
-                        if option_text.lower() == text.strip().lower() or option_text.lower() in text.lower():
-                            await opt.click()
-                            return
-                except Exception:
-                    pass
-                await page.click(f'text="{option_text}"')
+                
+                # Wait for popup options
+                await page.wait_for_selector('[role="option"], .fui-Dropdown__option, [role="listitem"]', timeout=5000)
+                options = await page.query_selector_all('[role="option"], .fui-Dropdown__option, [role="listitem"]')
+                if not options:
+                    raise Exception(f"No options found in dropdown for {button_selector}")
+                
+                # Adjust index if placeholder is present (e.g. 13 options for Month, 32 for Day)
+                if len(options) == 13 or len(options) == 32:
+                    idx = target_index
+                else:
+                    idx = target_index - 1
+                
+                idx = max(0, min(idx, len(options) - 1))
+                await options[idx].click()
+                await asyncio.sleep(0.5)
 
             # Select BirthMonth
-            try:
+            month_select = await page.query_selector('select[name="BirthMonth"]')
+            if month_select and await month_select.is_visible():
                 await page.select_option('select[name="BirthMonth"]', index=int(birth_month_val))
-            except Exception as e:
+            else:
                 try:
-                    await select_fluent_dropdown('#BirthMonthDropdown, button[name="BirthMonth"]', birth_month_name)
-                except Exception:
+                    await select_fluent_dropdown_by_index('#BirthMonthDropdown, button[name="BirthMonth"]', int(birth_month_val))
+                except Exception as e:
                     raise Exception(f"Failed to select Birth Month: {e}")
 
             await asyncio.sleep(0.5)
 
             # Select BirthDay
-            try:
+            day_select = await page.query_selector('select[name="BirthDay"]')
+            if day_select and await day_select.is_visible():
                 await page.select_option('select[name="BirthDay"]', value=birth_day_val)
-            except Exception as e:
+            else:
                 try:
-                    await select_fluent_dropdown('#BirthDayDropdown, button[name="BirthDay"]', birth_day_val)
-                except Exception:
+                    await select_fluent_dropdown_by_index('#BirthDayDropdown, button[name="BirthDay"]', int(birth_day_val))
+                except Exception as e:
                     raise Exception(f"Failed to select Birth Day: {e}")
 
             await asyncio.sleep(0.5)
 
             # Type BirthYear
-            year_input = await page.query_selector('input[name="BirthYear"], input[type="number"]')
+            year_input = await page.query_selector('input[name="BirthYear"], input[id="BirthYear"], input[type="number"]')
             if year_input:
+                await year_input.click()
+                await page.keyboard.press("Control+A")
+                await page.keyboard.press("Delete")
                 await year_input.fill(birth_year_val)
-                await asyncio.sleep(1)
+                await asyncio.sleep(0.5)
             else:
                 raise Exception("Birth Year input not found")
 

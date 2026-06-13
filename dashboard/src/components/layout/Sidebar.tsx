@@ -23,6 +23,8 @@ import {
   ChevronRight,
   Mail,
   MailOpen,
+  HardDrive,
+  Shield,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useTheme } from "@/hooks/useTheme";
@@ -40,6 +42,16 @@ interface NavSection {
 }
 
 const navSections: NavSection[] = [
+  {
+    title: "SERVER",
+    items: [
+      { label: "CPU Performance", path: "/server/cpu", icon: Cpu },
+      { label: "Memory & Storage", path: "/server/memory-storage", icon: HardDrive },
+      { label: "Network & Connect", path: "/server/network", icon: Globe },
+      { label: "Services & Docker", path: "/server/services", icon: Sliders },
+      { label: "System & Security", path: "/server/system-security", icon: Shield },
+    ],
+  },
   {
     title: "ACCOUNTS",
     items: [

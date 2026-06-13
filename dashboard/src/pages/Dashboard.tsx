@@ -83,8 +83,6 @@ export default function Dashboard() {
         </p>
       </div>
 
-      <SystemAnalytics />
-
       <StatsCards data={dashboardStats} />
 
       <TokenUsage stats={tokenStats} modelUsage={modelUsage} />

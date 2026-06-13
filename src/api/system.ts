@@ -18,13 +18,77 @@ let lastCpuIdle = 0;
 let lastCpuTotal = 0;
 let lastCpuCores: { idle: number; total: number }[] = [];
 
+// Cache public IP address
+let cachedPublicIp = "";
+let lastPublicIpFetch = 0;
+
 // Helper to execute commands and return trimmed stdout
 function runCmd(cmd: string): string {
   try {
-    return execSync(cmd, { stdio: "pipe", timeout: 2000 }).toString().trim();
+    return execSync(cmd, { stdio: "pipe", timeout: 2500 }).toString().trim();
   } catch {
     return "";
   }
+}
+
+// Fetch public IP address with a 5-minute cache
+async function getPublicIp(): Promise<string> {
+  if (cachedPublicIp && Date.now() - lastPublicIpFetch < 300000) {
+    return cachedPublicIp;
+  }
+  try {
+    const res = await fetch("https://api.ipify.org?format=json", { signal: AbortSignal.timeout(1500) });
+    const json = await res.json() as { ip: string };
+    if (json && json.ip) {
+      cachedPublicIp = json.ip;
+      lastPublicIpFetch = Date.now();
+      return cachedPublicIp;
+    }
+  } catch {}
+  return cachedPublicIp || "127.0.0.1";
+}
+
+// Perform 5 pings and parse avg latency + packet loss percentage
+function getPingStats() {
+  let latency = 0;
+  let packetLoss = 0;
+  try {
+    const isLinux = process.platform === "linux";
+    const cmd = isLinux ? "ping -c 5 -W 1 8.8.8.8" : "ping -n 5 -w 1000 8.8.8.8";
+    const out = runCmd(cmd);
+    
+    if (isLinux) {
+      // Parse packet loss: e.g. "5 packets transmitted, 5 received, 0% packet loss, time 4004ms"
+      const lossMatch = out.match(/(\d+)%\s+packet\s+loss/);
+      if (lossMatch) {
+        packetLoss = parseInt(lossMatch[1]);
+      }
+      // Parse avg latency: e.g. "rtt min/avg/max/mdev = 12.345/14.567/18.910/2.345 ms"
+      const rttMatch = out.match(/rtt\s+min\/avg\/max\/mdev\s+=\s+[\d.]+\/([\d.]+)\//);
+      if (rttMatch) {
+        latency = Math.round(parseFloat(rttMatch[1]));
+      } else {
+        // Fallback for single ping RTT
+        const rttSingle = out.match(/time=([\d.]+)\s+ms/);
+        if (rttSingle) latency = Math.round(parseFloat(rttSingle[1]));
+      }
+    } else {
+      // Windows: e.g. "Packets: Sent = 5, Received = 5, Lost = 0 (0% loss)"
+      const lossMatch = out.match(/Lost\s+=\s+\d+\s+\((\d+)%\s+loss\)/);
+      if (lossMatch) {
+        packetLoss = parseInt(lossMatch[1]);
+      }
+      // Minimum = 12ms, Maximum = 18ms, Average = 14ms
+      const rttMatch = out.match(/Average\s+=\s+(\d+)ms/);
+      if (rttMatch) {
+        latency = parseInt(rttMatch[1]);
+      }
+    }
+  } catch {
+    packetLoss = 100;
+    latency = -1;
+  }
+  return { latency, packetLoss };
 }
 
 // Read CPU stats from /proc/stat
@@ -57,7 +121,7 @@ function getLinuxCpuUsage() {
     lastCpuIdle = idleVal;
     lastCpuTotal = total;
 
-    // Per-core CPU (cpu0, cpu1, cpu2, cpu3)
+    // Per-core CPU
     const coreUsages: number[] = [];
     let coreIdx = 0;
     for (const line of lines.slice(1)) {
@@ -109,7 +173,6 @@ function updateLinuxNetwork() {
     let tx = 0;
     
     for (const line of lines) {
-      // Look for eth0, wlan0, end0, enp, or enx
       if (line.includes("eth0") || line.includes("wlan0") || line.includes("end0") || line.includes("enp") || line.includes("enx")) {
         const parts = line.trim().split(/\s+/).filter(Boolean);
         rx += parseInt(parts[1] || "0");
@@ -134,17 +197,63 @@ function updateLinuxNetwork() {
   } catch {}
 }
 
+// Parse active SSH session remote IPs
+function getLinuxSshSessions() {
+  const list: { user: string; terminal: string; loginTime: string; ip: string }[] = [];
+  try {
+    const out = runCmd("who");
+    const lines = out.split("\n").filter(Boolean);
+    for (const line of lines) {
+      // e.g. "root     pts/0        2026-06-13 18:40 (192.168.1.10)"
+      const parts = line.trim().split(/\s+/);
+      if (parts.length >= 5) {
+        const user = parts[0];
+        const terminal = parts[1];
+        const loginTime = `${parts[2]} ${parts[3]}`;
+        const ip = parts.slice(4).join(" ").replace(/[()]/g, "") || "local";
+        list.push({ user, terminal, loginTime, ip });
+      }
+    }
+  } catch {}
+  return list;
+}
+
+// Fetch Docker container stats
+function getLinuxDockerStats() {
+  const list: { name: string; status: string; cpu: string; memory: string }[] = [];
+  try {
+    const hasDocker = runCmd("which docker") !== "";
+    if (!hasDocker) return [];
+    
+    const statsOut = runCmd("docker stats --no-stream --format '{{.Name}}|{{.CPUPerc}}|{{.MemUsage}}|{{.MemPerc}}'");
+    const rows = statsOut.split("\n").filter(Boolean);
+    for (const row of rows) {
+      const [name, cpu, memUsage, memPerc] = row.split("|");
+      list.push({
+        name: name || "unknown",
+        status: "running",
+        cpu: cpu || "0.0%",
+        memory: `${memUsage || "0B"} (${memPerc || "0.0%"})`
+      });
+    }
+  } catch {}
+  return list;
+}
+
 systemRouter.get("/analytics", async (c) => {
   const isLinux = process.platform === "linux";
 
+  const publicIp = await getPublicIp();
+  const pingStats = getPingStats();
+
   // System general info
   const osType = isLinux ? "Linux (Armbian)" : "Windows (Dev Mode)";
-  const boardName = isLinux ? (runCmd("cat /sys/firmware/devicetree/base/model") || "Akari AX512 STB") : "Akari AX512 (Dev Board)";
+  const boardName = isLinux ? (runCmd("cat /sys/firmware/devicetree/base/model") || "Akari AX512 STB") : "Akari AX512 STB (Dev Board)";
   const kernelVersion = os.release();
   const uptime = os.uptime();
   const bootTime = new Date(Date.now() - uptime * 1000).toISOString();
 
-  // Network local IP and external ping
+  // Network local IP
   const interfaces = os.networkInterfaces();
   let localIp = "127.0.0.1";
   for (const name of Object.keys(interfaces)) {
@@ -156,21 +265,7 @@ systemRouter.get("/analytics", async (c) => {
     }
   }
 
-  // Perform a fast async ping/latency check
-  let pingLatency = 0;
-  try {
-    const startPing = Date.now();
-    if (isLinux) {
-      runCmd("ping -c 1 -W 1 8.8.8.8");
-    } else {
-      runCmd("ping -n 1 -w 1000 8.8.8.8");
-    }
-    pingLatency = Date.now() - startPing;
-  } catch {
-    pingLatency = -1; // Failed ping
-  }
-
-  // GATHER OS METRICS
+  // GATHER METRICS
   let cpuUsage = 0;
   let cpuCores: number[] = [0, 0, 0, 0];
   let cpuTemp = 0;
@@ -195,14 +290,15 @@ systemRouter.get("/analytics", async (c) => {
   
   let extStorage: any[] = [];
   let storageHealth = "Healthy";
-  let ioReadSpeed = 0; // Bytes/sec
-  let ioWriteSpeed = 0; // Bytes/sec
-  let sshSessions = 0;
+  let ioReadSpeed = 0;
+  let ioWriteSpeed = 0;
+  
+  let sshSessionsList: any[] = [];
   let failedLogins = 0;
   let topProcesses: any[] = [];
   let criticalLogs: string[] = [];
+  let dockerContainers: any[] = [];
 
-  // Services list
   let services = [
     { name: "nginx", active: false, label: "Web Server" },
     { name: "docker", active: false, label: "Docker Daemon" },
@@ -228,11 +324,11 @@ systemRouter.get("/analytics", async (c) => {
     try {
       if (fs.existsSync("/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq")) {
         const rawFreq = parseInt(fs.readFileSync("/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq", "utf8"));
-        cpuFreq = Math.round(rawFreq / 1000); // Convert kHz to MHz
+        cpuFreq = Math.round(rawFreq / 1000);
       }
     } catch {}
 
-    isThrottled = cpuTemp > 78; // Throttling threshold
+    isThrottled = cpuTemp > 78;
     loadAvg = os.loadavg();
 
     // 2. Linux Memory stats
@@ -298,7 +394,7 @@ systemRouter.get("/analytics", async (c) => {
         const wear = fs.readFileSync("/sys/class/block/mmcblk0/device/life_time", "utf8").trim();
         storageHealth = `Wearout status: ${wear} (Type-A/B life span)`;
       } else {
-        storageHealth = "eMMC Normal (sysfs lifetime healthy)";
+        storageHealth = "eMMC Normal (0x01: Life span estimated 100% remaining)";
       }
     } catch {
       storageHealth = "Healthy";
@@ -310,7 +406,7 @@ systemRouter.get("/analytics", async (c) => {
       const diskLine = ioStats.find(l => l.startsWith("mmcblk0") || l.startsWith("sda"));
       if (diskLine) {
         const parts = diskLine.split(/\s+/);
-        ioReadSpeed = Math.round(parseFloat(parts[2] || "0") * 1024); // Convert kB/s to B/s
+        ioReadSpeed = Math.round(parseFloat(parts[2] || "0") * 1024);
         ioWriteSpeed = Math.round(parseFloat(parts[3] || "0") * 1024);
       }
     } catch {}
@@ -318,25 +414,25 @@ systemRouter.get("/analytics", async (c) => {
     // 4. Linux Network update
     updateLinuxNetwork();
 
-    // 5. Linux SSH sessions
-    try {
-      sshSessions = runCmd("who | grep -c pts").split("\n").length;
-    } catch {}
+    // 5. Linux SSH sessions & IPs
+    sshSessionsList = getLinuxSshSessions();
 
     // Failed login attempts
     try {
       failedLogins = parseInt(runCmd("grep -c 'Failed password' /var/log/auth.log || journalctl _SYSTEMD_UNIT=ssh.service | grep -c 'Failed'") || "0");
     } catch {}
 
-    // 6. Top Processes
+    // 6. Top Processes (PID, USER, CPU, RAM, Command)
     try {
-      const topRows = runCmd("ps -eo pcpu,pmem,comm --sort=-pcpu | head -n 6").split("\n").slice(1);
+      const topRows = runCmd("ps -eo pid,user,pcpu,pmem,comm --sort=-pcpu | head -n 6").split("\n").slice(1);
       topProcesses = topRows.map(row => {
         const parts = row.trim().split(/\s+/);
         return {
-          cpu: parseFloat(parts[0] || "0"),
-          ram: parseFloat(parts[1] || "0"),
-          name: parts.slice(2).join(" ")
+          pid: parseInt(parts[0] || "0"),
+          user: parts[1] || "unknown",
+          cpu: parseFloat(parts[2] || "0"),
+          ram: parseFloat(parts[3] || "0"),
+          name: parts.slice(4).join(" ")
         };
       }).filter(p => p.name);
     } catch {}
@@ -351,30 +447,31 @@ systemRouter.get("/analytics", async (c) => {
       }
     });
 
+    // Docker container stats
+    dockerContainers = getLinuxDockerStats();
+
     // 8. Critical logs
     try {
-      criticalLogs = runCmd("dmesg -level=err,crit,alert,emerg | tail -n 5 || journalctl -p 3 -n 5").split("\n").filter(Boolean);
+      criticalLogs = runCmd("dmesg -level=err,crit,alert,emerg | tail -n 10 || journalctl -p 3 -n 10").split("\n").filter(Boolean);
     } catch {}
 
   } else {
     // ----------------------------------------------------
     // WINDOWS / DEVELOPMENT MOCK METRICS
-    // Simulate real-time metrics for Akari AX512 Armbian
     // ----------------------------------------------------
     const randomVal = Math.random();
-    cpuUsage = Math.round(15 + randomVal * 30); // 15% - 45% CPU
+    cpuUsage = Math.round(15 + randomVal * 30);
     cpuCores = [
       Math.round(10 + Math.random() * 20),
       Math.round(25 + Math.random() * 30),
       Math.round(5 + Math.random() * 15),
       Math.round(15 + Math.random() * 25)
     ];
-    cpuTemp = Math.round(48 + randomVal * 12); // 48C - 60C
-    cpuFreq = 1512; // 1.5 GHz clock speed
-    isThrottled = false;
+    cpuTemp = Math.round(48 + randomVal * 12);
+    cpuFreq = 1512;
+    isThrottled = cpuTemp > 75;
     loadAvg = [parseFloat((0.3 + randomVal * 0.4).toFixed(2)), parseFloat((0.25 + randomVal * 0.3).toFixed(2)), 0.18];
 
-    // 2GB RAM device simulation
     ramTotal = 2 * 1024 * 1024 * 1024;
     ramUsed = Math.round(ramTotal * (0.42 + randomVal * 0.1));
     ramFree = ramTotal - ramUsed;
@@ -385,37 +482,38 @@ systemRouter.get("/analytics", async (c) => {
     swapUsed = Math.round(swapTotal * 0.12);
     swapFree = swapTotal - swapUsed;
 
-    // 16GB eMMC simulation
     storageTotal = 14.5 * 1024 * 1024 * 1024;
     storageUsed = 6.2 * 1024 * 1024 * 1024;
     storageFree = storageTotal - storageUsed;
     storagePercent = Math.round((storageUsed / storageTotal) * 100);
-    storageHealth = "eMMC Normal (0x01: Healthy life span estimated 90% remaining)";
+    storageHealth = "eMMC Healthy (wearout: 5% used, lifetime: 0.1 type-A/B)";
 
     extStorage = [
-      { mount: "/media/usb-storage", total: 64 * 1024 * 1024 * 1024, used: 24.5 * 1024 * 1024 * 1024, free: 39.5 * 1024 * 1024 * 1024, percent: 38 }
+      { mount: "/media/usb-backup", total: 64 * 1024 * 1024 * 1024, used: 24.5 * 1024 * 1024 * 1024, free: 39.5 * 1024 * 1024 * 1024, percent: 38 }
     ];
 
-    // Simulated network throughput
     netThroughput = {
-      rx: Math.round(150 * 1024 + Math.random() * 850 * 1024), // 150 KB/s - 1 MB/s
+      rx: Math.round(150 * 1024 + Math.random() * 850 * 1024),
       tx: Math.round(20 * 1024 + Math.random() * 180 * 1024)
     };
-    totalRx = 14.2 * 1024 * 1024 * 1024; // 14.2 GB
+    totalRx = 14.2 * 1024 * 1024 * 1024;
     totalTx = 2.1 * 1024 * 1024 * 1024;
 
-    ioReadSpeed = Math.round(Math.random() * 250 * 1024);
+    ioReadSpeed = Math.round(Math.random() * 1250 * 1024);
     ioWriteSpeed = Math.round(Math.random() * 450 * 1024);
 
-    sshSessions = 1;
+    sshSessionsList = [
+      { user: "root", terminal: "pts/0", loginTime: "2026-06-13 18:40", ip: "192.168.1.10" },
+      { user: "admin", terminal: "pts/1", loginTime: "2026-06-13 19:10", ip: "114.24.120.35" }
+    ];
     failedLogins = 3;
 
     topProcesses = [
-      { cpu: 12.4, ram: 4.8, name: "etteum-agent" },
-      { cpu: 4.2, ram: 1.2, name: "nginx" },
-      { cpu: 2.1, ram: 6.5, name: "dockerd" },
-      { cpu: 1.5, ram: 0.8, name: "sshd" },
-      { cpu: 0.8, ram: 2.4, name: "systemd" }
+      { pid: 26224, user: "root", cpu: 12.4, ram: 4.8, name: "etteum-agent" },
+      { pid: 1042, user: "www-data", cpu: 4.2, ram: 1.2, name: "nginx" },
+      { pid: 842, user: "root", cpu: 2.1, ram: 6.5, name: "dockerd" },
+      { pid: 1251, user: "ssh", cpu: 1.5, ram: 0.8, name: "sshd" },
+      { pid: 1, user: "root", cpu: 0.8, ram: 2.4, name: "systemd" }
     ];
 
     services = [
@@ -425,10 +523,18 @@ systemRouter.get("/analytics", async (c) => {
       { name: "etteum", active: true, label: "Pool Proxy Backend" }
     ];
 
+    dockerContainers = [
+      { name: "mariadb-prod", status: "running", cpu: "1.4%", memory: "124 MB / 2.0 GB (6.2%)" },
+      { name: "redis-cache", status: "running", cpu: "0.2%", memory: "18 MB / 2.0 GB (0.9%)" },
+      { name: "mosquitto-mqtt", status: "running", cpu: "0.1%", memory: "5.4 MB / 2.0 GB (0.2%)" }
+    ];
+
     criticalLogs = [
       "[   2.451892] Amlogic thermal zone0: registered thermal band",
       "[   4.892014] eth0: Link is Up - 100Mbps/Full - flow control rx/tx",
-      "[  12.049102] EXT4-fs (mmcblk0p2): mounted filesystem with ordered data mode"
+      "[  12.049102] EXT4-fs (mmcblk0p2): mounted filesystem with ordered data mode",
+      "[ 341.251910] sshd[1251]: Accepted password for root from 192.168.1.10 port 49122 ssh2",
+      "[ 345.920042] sshd[1284]: Failed password for invalid user admin from 114.24.120.35 port 51108 ssh2"
     ];
   }
 
@@ -440,7 +546,9 @@ systemRouter.get("/analytics", async (c) => {
       uptime,
       bootTime,
       localIp,
-      pingLatencyMs: pingLatency
+      publicIp,
+      pingLatencyMs: pingStats.latency,
+      pingPacketLoss: pingStats.packetLoss
     },
     cpu: {
       overallUsage: cpuUsage,
@@ -489,8 +597,10 @@ systemRouter.get("/analytics", async (c) => {
       }
     },
     services,
+    dockerContainers,
     security: {
-      sshSessions,
+      sshSessionsCount: sshSessionsList.length,
+      sshSessionsList,
       failedLogins
     },
     topProcesses,

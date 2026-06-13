@@ -388,6 +388,8 @@ export async function loginAccount(account: Account, options: LoginOptions = {})
         provider,
         headless,
         browserEngine: options.browserEngine || config.browserEngine,
+        outlookClientId: process.env.OUTLOOK_CLIENT_ID || "",
+        outlookRedirectUri: `${process.env.APP_URL || "https://dash.ghafystore.store"}/api/accounts/outlook/callback`,
       });
 
       if (!result.success) {
@@ -418,9 +420,12 @@ export async function loginAccount(account: Account, options: LoginOptions = {})
         }
       }
 
+      const registeredEmail = credentials.registered_email || account.email;
+
       await db
         .update(accounts)
         .set({
+          email: registeredEmail,
           status: "active",
           tokens: credentials as unknown,
           quotaLimit,
@@ -517,6 +522,9 @@ export async function loginAccount(account: Account, options: LoginOptions = {})
           HTTPS_PROXY: proxyUrlForAuth || config.proxyUrl || "",
           BATCHER_CONCURRENT: "1",
           BATCHER_PRIORITY: provider,
+          BATCHER_ACCOUNT_ID: String(account.id),
+          OUTLOOK_CLIENT_ID: process.env.OUTLOOK_CLIENT_ID || "",
+          OUTLOOK_REDIRECT_URI: `${process.env.APP_URL || "https://dash.ghafystore.store"}/api/accounts/outlook/callback`,
           ...kiroProEnv,
         },
         cwd: config.authScriptCwd,
@@ -718,9 +726,12 @@ export async function loginAccount(account: Account, options: LoginOptions = {})
       }
     }
 
+    const registeredEmail = credentials.registered_email || account.email;
+
     await db
       .update(accounts)
       .set({
+        email: registeredEmail,
         status: "active",
         tokens: credentials as unknown,
         quotaLimit,

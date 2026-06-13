@@ -20,6 +20,7 @@ const FilterRules = lazy(() => import("./pages/FilterRules"));
 const Integration = lazy(() => import("./pages/Integration"));
 const DotTrick = lazy(() => import("./pages/DotTrick"));
 const TempMail = lazy(() => import("./pages/TempMail"));
+const OutlookMail = lazy(() => import("./pages/OutlookMail"));
 const CodexOAuthCallback = lazy(() => import("./pages/CodexOAuthCallback"));
 
 function RouteFallback() {
@@ -83,6 +84,7 @@ export default function App() {
           <Route path="/integration" element={<Integration />} />
           <Route path="/dottrick" element={<DotTrick />} />
           <Route path="/temp-mail" element={<TempMail />} />
+          <Route path="/outlook-mail" element={<OutlookMail />} />
           <Route path="/image-studio" element={<ImageStudio />} />
           <Route path="/oauth/codex/callback" element={<CodexOAuthCallback />} />
         </Route>

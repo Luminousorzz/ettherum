@@ -54,6 +54,7 @@ const navSections: NavSection[] = [
       { label: "Image Studio", path: "/image-studio", icon: Sparkles },
       { label: "DotTrick", path: "/dottrick", icon: Mail },
       { label: "Temp Mail", path: "/temp-mail", icon: MailOpen },
+      { label: "Outlook Mail", path: "/outlook-mail", icon: MailOpen },
       { label: "Integration", path: "/integration", icon: Plug },
     ],
   },

@@ -64,6 +64,29 @@ function labelProvider(provider: string) {
   return provider.charAt(0).toUpperCase() + provider.slice(1);
 }
 
+function generateOutlookCredentials() {
+  const firstNames = ["james", "john", "robert", "michael", "william", "david", "richard", "joseph", "thomas", "charles", "christopher", "daniel", "matthew", "anthony", "mark", "donald", "steven", "paul", "andrew", "joshua", "kenneth", "kevin", "brian", "george", "edward", "ronald", "timothy", "jason", "jeffrey", "ryan", "jacob", "gary", "nicholas", "eric", "jonathan", "stephen", "larry", "justin", "scott", "brandon", "frank", "benjamin", "gregory", "samuel", "raymond", "patrick", "alexander", "jack", "dennis", "jerry"];
+  const lastNames = ["smith", "johnson", "williams", "brown", "jones", "garcia", "miller", "davis", "rodriguez", "martinez", "hernandez", "lopez", "gonzalez", "wilson", "anderson", "thomas", "taylor", "moore", "jackson", "martin", "lee", "perez", "thompson", "white", "harris", "sanchez", "clark", "ramirez", "lewis", "robinson", "walker", "young", "allen", "king", "wright", "scott", "torres", "nguyen", "hill", "flores", "green", "adams", "nelson", "baker", "hall", "rivera", "campbell", "mitchell", "carter", "roberts"];
+  const first = firstNames[Math.floor(Math.random() * firstNames.length)]!;
+  const last = lastNames[Math.floor(Math.random() * lastNames.length)]!;
+  const email = `${first}${last}@outlook.com`;
+  
+  const chars = "abcdefghijklmnopqrstuvwxyz";
+  const caps = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+  const nums = "0123456789";
+  const syms = "!@#$*";
+  
+  const passParts = [
+    Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join(""),
+    Array.from({ length: 3 }, () => caps[Math.floor(Math.random() * caps.length)]).join(""),
+    Array.from({ length: 3 }, () => nums[Math.floor(Math.random() * nums.length)]).join(""),
+    Array.from({ length: 2 }, () => syms[Math.floor(Math.random() * syms.length)]).join(""),
+  ];
+  const password = passParts.join("").split("").sort(() => 0.5 - Math.random()).join("");
+  
+  return { email, password };
+}
+
 export default function Accounts() {
   const navigate = useNavigate();
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -512,6 +535,18 @@ export default function Accounts() {
     resetCodexOAuthFlow();
     if (provider === "codex") {
       setAddMode("pat");
+    } else if (provider === "outlook") {
+      setAddMode("single");
+      const creds = generateOutlookCredentials();
+      setAddForm({
+        email: creds.email,
+        password: creds.password,
+        provider: "outlook",
+        browserEngine: "camoufox",
+        headless: true
+      });
+    } else {
+      setAddMode("bulk");
     }
     setAddDialogProvider(provider);
   }
@@ -798,77 +833,85 @@ export default function Accounts() {
               </div>
 
               {/* Credits remaining */}
-              <div className="space-y-1.5">
-                <div className="flex justify-between text-xs">
-                  <span className="text-[var(--muted-foreground)]">Credits</span>
-                  <span className="text-[var(--foreground)]">
-                    {stat.credits.remaining.toFixed(1)} / {stat.credits.total.toFixed(1)} remaining
-                  </span>
-                </div>
-                <Progress
-                  value={stat.credits.total > 0 ? Math.round((stat.credits.remaining / stat.credits.total) * 100) : 0}
-                  className="h-2"
-                />
-              </div>
-
-              {/* WarmUp progress - hide when completed */}
-              {warmupProgress[stat.provider] && warmupProgress[stat.provider].completed < warmupProgress[stat.provider].total && (
+              {stat.provider !== "outlook" && (
                 <div className="space-y-1.5">
                   <div className="flex justify-between text-xs">
-                    <span className="text-[var(--muted-foreground)]">WarmUp</span>
+                    <span className="text-[var(--muted-foreground)]">Credits</span>
                     <span className="text-[var(--foreground)]">
-                      {warmupProgress[stat.provider].completed} / {warmupProgress[stat.provider].total} completed
+                      {stat.credits.remaining.toFixed(1)} / {stat.credits.total.toFixed(1)} remaining
                     </span>
                   </div>
                   <Progress
-                    value={warmupProgress[stat.provider].total > 0 ? Math.round((warmupProgress[stat.provider].completed / warmupProgress[stat.provider].total) * 100) : 0}
+                    value={stat.credits.total > 0 ? Math.round((stat.credits.remaining / stat.credits.total) * 100) : 0}
                     className="h-2"
                   />
                 </div>
               )}
 
-              {/* Auto WarmUp toggle + countdown */}
-              <div
-                className="flex items-center justify-between gap-2 rounded-md border border-[var(--border)] bg-[var(--secondary)]/40 p-2"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <div className="flex items-center gap-2 min-w-0">
-                  <Flame className={`h-4 w-4 shrink-0 ${autoWarmupEnabledFor(stat.provider) ? "text-[var(--warning)]" : "text-[var(--muted-foreground)]"}`} />
-                  <div className="min-w-0">
-                    <p className="text-xs font-medium text-[var(--foreground)] leading-tight">Auto WarmUp</p>
-                    <p className="text-[10px] text-[var(--muted-foreground)] leading-tight">
-                      {autoWarmupEnabledFor(stat.provider)
-                        ? autoWarmup?.nextRunAt
-                          ? `Next in ${countdownLabel()} · every ${autoWarmup.intervalMinutes}m`
-                          : `Every ${autoWarmup?.intervalMinutes ?? 15}m`
-                        : "Disabled"}
-                    </p>
+              {/* WarmUp progress - hide when completed */}
+              {stat.provider !== "outlook" && (
+                <>
+                  {warmupProgress[stat.provider] && warmupProgress[stat.provider].completed < warmupProgress[stat.provider].total && (
+                    <div className="space-y-1.5">
+                      <div className="flex justify-between text-xs">
+                        <span className="text-[var(--muted-foreground)]">WarmUp</span>
+                        <span className="text-[var(--foreground)]">
+                          {warmupProgress[stat.provider].completed} / {warmupProgress[stat.provider].total} completed
+                        </span>
+                      </div>
+                      <Progress
+                        value={warmupProgress[stat.provider].total > 0 ? Math.round((warmupProgress[stat.provider].completed / warmupProgress[stat.provider].total) * 100) : 0}
+                        className="h-2"
+                      />
+                    </div>
+                  )}
+
+                  {/* Auto WarmUp toggle + countdown */}
+                  <div
+                    className="flex items-center justify-between gap-2 rounded-md border border-[var(--border)] bg-[var(--secondary)]/40 p-2"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <Flame className={`h-4 w-4 shrink-0 ${autoWarmupEnabledFor(stat.provider) ? "text-[var(--warning)]" : "text-[var(--muted-foreground)]"}`} />
+                      <div className="min-w-0">
+                        <p className="text-xs font-medium text-[var(--foreground)] leading-tight">Auto WarmUp</p>
+                        <p className="text-[10px] text-[var(--muted-foreground)] leading-tight">
+                          {autoWarmupEnabledFor(stat.provider)
+                            ? autoWarmup?.nextRunAt
+                              ? `Next in ${countdownLabel()} · every ${autoWarmup.intervalMinutes}m`
+                              : `Every ${autoWarmup?.intervalMinutes ?? 15}m`
+                            : "Disabled"}
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleToggleAutoWarmup(stat.provider)}
+                      className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors ${
+                        autoWarmupEnabledFor(stat.provider) ? "bg-[var(--primary)]" : "bg-[var(--border)]"
+                      }`}
+                      aria-label={`Toggle auto warmup for ${labelProvider(stat.provider)}`}
+                    >
+                      <span
+                        className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${
+                          autoWarmupEnabledFor(stat.provider) ? "translate-x-5" : "translate-x-1"
+                        }`}
+                      />
+                    </button>
                   </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => handleToggleAutoWarmup(stat.provider)}
-                  className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors ${
-                    autoWarmupEnabledFor(stat.provider) ? "bg-[var(--primary)]" : "bg-[var(--border)]"
-                  }`}
-                  aria-label={`Toggle auto warmup for ${labelProvider(stat.provider)}`}
-                >
-                  <span
-                    className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${
-                      autoWarmupEnabledFor(stat.provider) ? "translate-x-5" : "translate-x-1"
-                    }`}
-                  />
-                </button>
-              </div>
+                </>
+              )}
 
               {/* Buttons */}
-              <div className="grid grid-cols-3 gap-2" onClick={(e) => e.stopPropagation()}>
+              <div className={`grid ${stat.provider === "outlook" ? "grid-cols-2" : "grid-cols-3"} gap-2`} onClick={(e) => e.stopPropagation()}>
                 <Button className="w-full" variant="default" size="sm" onClick={() => handleOpenAddDialog(stat.provider)}>
                   <Plus className="mr-1 h-4 w-4" /> Add
                 </Button>
-                <Button className="w-full" variant="outline" size="sm" onClick={() => handleWarmupProvider(stat.provider)} disabled={Boolean(warmupProgress[stat.provider])}>
-                  <RefreshCw className="mr-1 h-4 w-4" /> Warmup
-                </Button>
+                {stat.provider !== "outlook" && (
+                  <Button className="w-full" variant="outline" size="sm" onClick={() => handleWarmupProvider(stat.provider)} disabled={Boolean(warmupProgress[stat.provider])}>
+                    <RefreshCw className="mr-1 h-4 w-4" /> Warmup
+                  </Button>
+                )}
                 <Button className="w-full" variant="outline" size="sm" onClick={() => handleRetryErrors(stat.provider)} disabled={stat.error === 0}>
                   <RotateCcw className="mr-1 h-4 w-4" /> Retry
                 </Button>
@@ -1172,6 +1215,8 @@ export default function Accounts() {
                 ? "Add via browser login or instant login with API key/token."
                 : addDialogProvider === "qoder"
                 ? "Add via PAT, bulk Google accounts, or single account."
+                : addDialogProvider === "outlook"
+                ? "Outlook account credentials are automatically generated. The browser will run on the runner to register the account, where you can solve the CAPTCHA."
                 : `Add account for ${addDialogProvider ? labelProvider(addDialogProvider) : "this provider"}.`}
             </DialogDescription>
           </DialogHeader>
@@ -1204,6 +1249,8 @@ export default function Accounts() {
                 className={`flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors ${addMode === "single" ? "bg-[var(--background)] text-[var(--foreground)] shadow-sm" : "text-[var(--muted-foreground)]"}`}
               >Single</button>
             </div>
+          ) : addDialogProvider === "outlook" ? (
+            null /* No mode tabs for outlook */
           ) : (
             <div className="flex gap-1 rounded-md bg-[var(--secondary)] p-1">
               <button onClick={() => setAddMode("bulk")}
@@ -1364,7 +1411,21 @@ export default function Accounts() {
           {addMode === "single" && (
             <div className="space-y-4">
               <div>
-                <label className="text-sm text-[var(--foreground)]">Email</label>
+                <label className="text-sm text-[var(--foreground)] flex justify-between items-center">
+                  <span>Email</span>
+                  {addDialogProvider === "outlook" && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const creds = generateOutlookCredentials();
+                        setAddForm((prev) => ({ ...prev, email: creds.email, password: creds.password }));
+                      }}
+                      className="text-xs text-[var(--primary)] hover:underline flex items-center gap-1"
+                    >
+                      ✨ Auto-Generate
+                    </button>
+                  )}
+                </label>
                 <Input value={addForm.email} onChange={(e) => setAddForm({ ...addForm, email: e.target.value })} placeholder="email@example.com" className="mt-1" />
               </div>
               <div>

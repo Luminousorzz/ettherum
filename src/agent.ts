@@ -241,9 +241,11 @@ function connect() {
           provider: string;
           headless: boolean;
           browserEngine: string;
+          outlookClientId?: string;
+          outlookRedirectUri?: string;
         };
 
-        const { accountId, email, passwordHex, provider, headless, browserEngine } = job;
+        const { accountId, email, passwordHex, provider, headless, browserEngine, outlookClientId = "", outlookRedirectUri = "" } = job;
         console.log(`[Agent] Received job for Account ID ${accountId} (${provider}/${email})`);
 
         // If a process is already running for this account, kill it first
@@ -284,6 +286,9 @@ function connect() {
                 BATCHER_ENABLE_CAMOUFOX: "true",
                 BATCHER_CAMOUFOX_HEADLESS: runHeadless,
                 BATCHER_BROWSER_ENGINE: browserEngine || defaultBrowserEngine,
+                BATCHER_ACCOUNT_ID: String(accountId),
+                OUTLOOK_CLIENT_ID: outlookClientId,
+                OUTLOOK_REDIRECT_URI: outlookRedirectUri,
               },
               cwd: authScriptCwd,
             }

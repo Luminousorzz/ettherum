@@ -43,7 +43,7 @@ async def screenshot_loop(session_dict: dict, provider: str, email: str):
     import base64
     while True:
         try:
-            await asyncio.sleep(1.5)
+            await asyncio.sleep(0.8)
             if not isinstance(session_dict, dict):
                 continue
             page = session_dict.get("page")

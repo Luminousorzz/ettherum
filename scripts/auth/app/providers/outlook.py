@@ -79,24 +79,62 @@ class OutlookProviderAdapter(ProviderAdapter):
 
         try:
             # 1. Entering new email (without domain or username part)
-            email_part = account.identifier.split("@")[0]
+            original_email_part = account.identifier.split("@")[0]
             # Strip any numbers if the user wants "just name gk ada angka"
-            email_part = re.sub(r'\d+', '', email_part)
-            if not email_part:
-                # Fallback to random name
-                email_part = "".join(random.choices("abcdefghijklmnopqrstuvwxyz", k=8))
+            original_email_part = re.sub(r'\d+', '', original_email_part)
+            if not original_email_part:
+                original_email_part = "".join(random.choices("abcdefghijklmnopqrstuvwxyz", k=8))
 
-            await page.wait_for_selector('input[type="email"], input[id="usernameInput"], input[name="username"]', timeout=30000)
-            email_input = await page.query_selector('input[type="email"], input[id="usernameInput"], input[name="username"]')
-            if email_input:
+            email_part = original_email_part
+            email_accepted = False
+
+            for attempt in range(5):
+                if attempt > 0:
+                    # Append 3 random letters to make it unique
+                    suffix = "".join(random.choices("abcdefghijklmnopqrstuvwxyz", k=3))
+                    email_part = f"{original_email_part}{suffix}"
+                
+                await page.wait_for_selector('input[type="email"], input[id="usernameInput"], input[name="username"]', timeout=30000)
+                email_input = await page.query_selector('input[type="email"], input[id="usernameInput"], input[name="username"]')
+                if not email_input:
+                    raise Exception("Email input not found")
+                
+                # Clear existing text and fill
+                await email_input.click()
+                await page.keyboard.press("Control+A")
+                await page.keyboard.press("Delete")
                 await email_input.fill(email_part)
                 await asyncio.sleep(1)
-            else:
-                raise Exception("Email input not found")
+                
+                # Click next
+                await page.click('button[data-testid="primaryButton"], button[type="submit"], input[type="submit"]')
+                await asyncio.sleep(2)
+                
+                # Check if usernameError is shown
+                error_shown = False
+                error_el = await page.query_selector('#usernameError, [id*="Error"], .alert-error')
+                if error_el:
+                    error_text = await error_el.inner_text()
+                    if error_text.strip():
+                        error_shown = True
+                
+                if not error_shown:
+                    # Check if password input is now visible
+                    password_visible = False
+                    try:
+                        await page.wait_for_selector('input[type="password"], input[id="passwordInput"], input[name="password"]', timeout=3000)
+                        password_visible = True
+                    except Exception:
+                        pass
+                    
+                    if password_visible:
+                        email_accepted = True
+                        break
 
-            # Click next button: data-testid="primaryButton"
-            await page.click('button[data-testid="primaryButton"], button[type="submit"], input[type="submit"]')
-            await asyncio.sleep(2)
+            if not email_accepted:
+                raise Exception("Failed to find an available email username after 5 attempts")
+
+            actual_registered_email = f"{email_part}@outlook.com"
 
             # 2. Entering password
             await page.wait_for_selector('input[type="password"], input[id="passwordInput"], input[name="password"]', timeout=15000)
@@ -201,6 +239,57 @@ class OutlookProviderAdapter(ProviderAdapter):
             if not success:
                 raise Exception("Registration timed out or failed (did not reach mailbox)")
 
+            # 6. Optional automated OAuth consent for our Microsoft App
+            client_id = os.getenv("OUTLOOK_CLIENT_ID", "")
+            redirect_uri = os.getenv("OUTLOOK_REDIRECT_URI", "")
+            account_id = os.getenv("BATCHER_ACCOUNT_ID", "")
+
+            if client_id and redirect_uri and account_id:
+                # Construct authorization URL
+                scopes = "offline_access https://graph.microsoft.com/Mail.Read"
+                from urllib.parse import quote
+                auth_url = (
+                    f"https://login.microsoftonline.com/common/oauth2/v2.0/authorize"
+                    f"?client_id={client_id}"
+                    f"&response_type=code"
+                    f"&redirect_uri={quote(redirect_uri)}"
+                    f"&scope={quote(scopes)}"
+                    f"&state=accountId:{account_id}"
+                    f"&prompt=consent"
+                )
+                
+                try:
+                    # Navigate to OAuth page
+                    await page.goto(auth_url, wait_until="networkidle", timeout=30000)
+                    await asyncio.sleep(2)
+                    
+                    # Handle "Stay signed in" and "Permissions requested" screens
+                    for _ in range(3):
+                        if "/api/accounts/outlook/callback" in page.url:
+                            break
+                        
+                        # Click "Yes" to stay signed in (idSIButton9)
+                        stay_signed_in_btn = await page.query_selector('input[type="submit"][id="idSIButton9"], #idSIButton9')
+                        if stay_signed_in_btn:
+                            await stay_signed_in_btn.click()
+                            await asyncio.sleep(2)
+                            continue
+                        
+                        # Click "Accept" on permission consent (idBtn_Accept)
+                        accept_btn = await page.query_selector('input[type="submit"][id="idBtn_Accept"], button[id="idBtn_Accept"], #idBtn_Accept')
+                        if accept_btn:
+                            await accept_btn.click()
+                            await asyncio.sleep(2)
+                            continue
+                        
+                        if "/api/accounts/outlook/callback" in page.url:
+                            break
+                            
+                        await asyncio.sleep(1)
+                except Exception as oauth_err:
+                    # Non-fatal: log warning so we don't crash main account creation
+                    print(f"Warning: Outlook OAuth auto-consent failed: {oauth_err}", flush=True)
+
             return {
                 "success": True,
                 "first_name": first_name,
@@ -208,7 +297,7 @@ class OutlookProviderAdapter(ProviderAdapter):
                 "birth_day": birth_day_val,
                 "birth_month": birth_month_val,
                 "birth_year": birth_year_val,
-                "email": account.identifier,
+                "email": actual_registered_email,
             }
 
         except Exception as e:
@@ -225,7 +314,7 @@ class OutlookProviderAdapter(ProviderAdapter):
             "birth_day": auth_state.get("birth_day", ""),
             "birth_month": auth_state.get("birth_month", ""),
             "birth_year": auth_state.get("birth_year", ""),
-            "registered_email": account.identifier,
+            "registered_email": auth_state.get("email", account.identifier),
         }
 
     async def fetch_quota(self, account: NormalizedAccount, tokens: dict[str, str], session: Any) -> dict[str, Any] | None:

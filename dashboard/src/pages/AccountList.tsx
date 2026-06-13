@@ -291,9 +291,11 @@ export default function AccountList() {
           <Button variant="outline" size="sm" onClick={load} disabled={loading}>
             <RefreshCw className="w-4 h-4 mr-2" /> Refresh
           </Button>
-          <Button variant="outline" size="sm" onClick={handleWarmupAll}>
-            <RefreshCw className="w-4 h-4 mr-2" /> Warmup All
-          </Button>
+          {provider !== "outlook" && (
+            <Button variant="outline" size="sm" onClick={handleWarmupAll}>
+              <RefreshCw className="w-4 h-4 mr-2" /> Warmup All
+            </Button>
+          )}
           <Button variant="outline" size="sm" onClick={handleRetryErrors} disabled={errorCount === 0}>
             <RotateCcw className="w-4 h-4 mr-2" /> Retry Errors ({errorCount})
           </Button>
@@ -355,9 +357,11 @@ export default function AccountList() {
                   <th className="text-left text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wide p-4 cursor-pointer select-none hover:text-[var(--foreground)]" onClick={() => handleSort("enabled")}>
                     <span className="inline-flex items-center">Enabled<SortIcon column="enabled" /></span>
                   </th>
-                  <th className="text-left text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wide p-4 cursor-pointer select-none hover:text-[var(--foreground)] hidden sm:table-cell" onClick={() => handleSort("credit")}>
-                    <span className="inline-flex items-center">Credit<SortIcon column="credit" /></span>
-                  </th>
+                  {provider !== "outlook" && (
+                    <th className="text-left text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wide p-4 cursor-pointer select-none hover:text-[var(--foreground)] hidden sm:table-cell" onClick={() => handleSort("credit")}>
+                      <span className="inline-flex items-center">Credit<SortIcon column="credit" /></span>
+                    </th>
+                  )}
                   <th className="text-left text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wide p-4 cursor-pointer select-none hover:text-[var(--foreground)] hidden md:table-cell" onClick={() => handleSort("lastLogin")}>
                     <span className="inline-flex items-center">Last Login<SortIcon column="lastLogin" /></span>
                   </th>
@@ -386,18 +390,20 @@ export default function AccountList() {
                         <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${isEnabled ? "translate-x-4" : "translate-x-0.5"}`} />
                       </button>
                     </td>
-                    <td className="p-4 text-sm text-[var(--muted-foreground)] hidden sm:table-cell">
-                      {account.provider === "codex"
-                        ? <CodexQuotaCell codex={account.metadata?.codex_quota} fallbackRemaining={account.quotaRemaining} fallbackLimit={account.quotaLimit} />
-                        : <span className="flex items-center gap-1.5">
-                            {formatCredit(account.quotaRemaining)}/{formatCredit(account.quotaLimit)}
-                            {account.metadata?.overage?.enabled && account.metadata.overage.remaining > 0 && (
-                              <Badge variant="success" className="text-[10px] px-1 py-0">
-                                PAYG: {Math.round(account.metadata.overage.used)}
-                              </Badge>
-                            )}
-                          </span>}
-                    </td>
+                    {provider !== "outlook" && (
+                      <td className="p-4 text-sm text-[var(--muted-foreground)] hidden sm:table-cell">
+                        {account.provider === "codex"
+                          ? <CodexQuotaCell codex={account.metadata?.codex_quota} fallbackRemaining={account.quotaRemaining} fallbackLimit={account.quotaLimit} />
+                          : <span className="flex items-center gap-1.5">
+                              {formatCredit(account.quotaRemaining)}/{formatCredit(account.quotaLimit)}
+                              {account.metadata?.overage?.enabled && account.metadata.overage.remaining > 0 && (
+                                <Badge variant="success" className="text-[10px] px-1 py-0">
+                                  PAYG: {Math.round(account.metadata.overage.used)}
+                                </Badge>
+                              )}
+                            </span>}
+                      </td>
+                    )}
                     <td className="p-4 text-xs text-[var(--muted-foreground)] hidden md:table-cell">{formatDate(account.lastLoginAt || account.lastUsedAt)}</td>
                     <td className="p-4">
                       <div className="flex gap-1">
@@ -406,9 +412,11 @@ export default function AccountList() {
                             <ExternalLink className="w-4 h-4 text-[var(--info)]" />
                           </Button>
                         )}
-                        <Button variant="ghost" size="icon" onClick={() => handleWarmup(account.id)} title="WarmUp">
-                          <RefreshCw className="w-4 h-4 text-[var(--warning)]" />
-                        </Button>
+                        {provider !== "outlook" && (
+                          <Button variant="ghost" size="icon" onClick={() => handleWarmup(account.id)} title="WarmUp">
+                            <RefreshCw className="w-4 h-4 text-[var(--warning)]" />
+                          </Button>
+                        )}
                         <Button variant="ghost" size="icon" onClick={() => handleLogin(account.id)} title="Queue login" disabled={account.status !== "pending" && account.status !== "error"}>
                           <RotateCcw className="w-4 h-4" />
                         </Button>

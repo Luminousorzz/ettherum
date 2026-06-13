@@ -11,9 +11,11 @@ import { binApi } from "./bin";
 import { integrationRouter } from "./integration";
 import { oauthRouter } from "./oauth";
 import { tempMailRouter } from "./temp-mail";
+import { outlookRouter } from "./outlook";
 
 export const apiRouter = new Hono();
 
+apiRouter.route("/accounts/outlook", outlookRouter);
 apiRouter.route("/accounts", accountsRouter);
 apiRouter.route("/settings", proxySettingsRouter);
 apiRouter.route("/stats", statsRouter);
@@ -28,7 +30,7 @@ apiRouter.route("/oauth", oauthRouter);
 apiRouter.route("/temp-mail", tempMailRouter);
 
 apiRouter.get("/providers", (c) => {
-  return c.json({ data: ["kiro", "kiro-pro", "codebuddy", "canva", "codex", "qoder"] });
+  return c.json({ data: ["kiro", "kiro-pro", "codebuddy", "canva", "codex", "qoder", "outlook"] });
 });
 
 // Health check

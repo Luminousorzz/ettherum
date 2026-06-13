@@ -38,6 +38,9 @@ export const config = {
   browserEngine: process.env.BROWSER_ENGINE || "camoufox",
   captchaService: process.env.CAPTCHA_SERVICE || "none",
   captchaApiKey: process.env.CAPTCHA_API_KEY || "",
+  // Microsoft Outlook OAuth2 App (for Graph API mail fetching)
+  outlookClientId: process.env.OUTLOOK_CLIENT_ID || "",
+  outlookClientSecret: process.env.OUTLOOK_CLIENT_SECRET || "",
   // Providers: kiro, kiro-pro, codebuddy, canva, codex, qoder, outlook
   providers: ["kiro", "kiro-pro", "codebuddy", "canva", "codex", "qoder", "outlook"] as const,
 } as const;

@@ -1,5 +1,6 @@
 import StatsCards from "@/components/dashboard/StatsCards";
 import TokenUsage from "@/components/dashboard/TokenUsage";
+import SystemAnalytics from "@/components/dashboard/SystemAnalytics";
 import { useEffect, useRef, useState } from "react";
 import { fetchDashboardStats, fetchModelUsage } from "@/lib/api";
 import { modelColor } from "@/lib/utils";
@@ -81,6 +82,8 @@ export default function Dashboard() {
           Overview of your proxy pool status
         </p>
       </div>
+
+      <SystemAnalytics />
 
       <StatsCards data={dashboardStats} />
 

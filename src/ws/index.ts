@@ -189,7 +189,7 @@ export function delegateToAgent(accountId: number, job: {
  * Cancel a running job on the agent
  */
 export function cancelAgentJob(accountId: number): void {
-  if (activeAgentWs && pendingAgentJobs.has(accountId)) {
+  if (activeAgentWs) {
     activeAgentWs.send(JSON.stringify({
       type: "stop_login",
       data: { accountId }

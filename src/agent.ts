@@ -186,8 +186,20 @@ if (!existsSync(localPythonPath)) {
 }
 
 const pythonPath = existsSync(localPythonPath) ? localPythonPath : systemPython;
-const authScriptPath = path.resolve(dataDir, "scripts/auth/login.py");
-const authScriptCwd = path.resolve(dataDir, "scripts/auth");
+
+// In development/repository workspace, use the workspace scripts directly
+const projectRoot = path.resolve(import.meta.dir, "..");
+const localWorkspaceScript = path.resolve(projectRoot, "scripts/auth/login.py");
+const useWorkspace = existsSync(localWorkspaceScript);
+
+const authScriptPath = useWorkspace 
+  ? localWorkspaceScript 
+  : path.resolve(dataDir, "scripts/auth/login.py");
+
+const authScriptCwd = useWorkspace 
+  ? path.resolve(projectRoot, "scripts/auth") 
+  : path.resolve(dataDir, "scripts/auth");
+
 const defaultBrowserEngine = process.env.BROWSER_ENGINE || "camoufox";
 
 console.log(`[Agent] Starting Windows Local Runner Agent...`);
@@ -393,10 +405,16 @@ function connect() {
         const proc = activeProcesses.get(payload.accountId);
         if (proc) {
           try {
-            proc.kill("SIGKILL");
-            console.log(`[Agent] Sent SIGKILL to process for Account ID ${payload.accountId}`);
+            if (isWin && proc.pid) {
+              console.log(`[Agent] Killing process tree for Account ID ${payload.accountId} (PID: ${proc.pid}) using taskkill...`);
+              Bun.spawnSync(["taskkill", "/F", "/T", "/PID", String(proc.pid)]);
+            } else {
+              proc.kill("SIGKILL");
+            }
+            console.log(`[Agent] Process killed for Account ID ${payload.accountId}`);
           } catch (e) {
             console.error(`[Agent] Error killing process: ${e}`);
+            try { proc.kill("SIGKILL"); } catch {}
           }
           activeProcesses.delete(payload.accountId);
         }
@@ -416,8 +434,14 @@ function connect() {
     // Kill any running jobs when server disconnects
     for (const [accountId, proc] of activeProcesses.entries()) {
       try {
-        proc.kill("SIGKILL");
-      } catch {}
+        if (isWin && proc.pid) {
+          Bun.spawnSync(["taskkill", "/F", "/T", "/PID", String(proc.pid)]);
+        } else {
+          proc.kill("SIGKILL");
+        }
+      } catch {
+        try { proc.kill("SIGKILL"); } catch {}
+      }
     }
     activeProcesses.clear();
     sentResult.clear();

@@ -3,7 +3,7 @@ import { db } from "../db/index";
 import { accounts, settings } from "../db/schema";
 import { eq } from "drizzle-orm";
 import { decrypt } from "../utils/crypto";
-import { broadcast, isAgentConnected, delegateToAgent, cancelAgentJob } from "../ws/index";
+import { broadcast, isAgentConnected, delegateToAgent, cancelAgentJob, pendingAgentJobs } from "../ws/index";
 import type { Account } from "../db/schema";
 import { addAuthLog } from "./logs";
 import { providers } from "../proxy/router";
@@ -15,12 +15,12 @@ const activeProcesses = new Map<number, ReturnType<typeof Bun.spawn>>();
 const manuallyStoppedIds = new Set<number>();
 
 export function stopLoginProcess(accountId: number): boolean {
+  manuallyStoppedIds.add(accountId);
   if (isAgentConnected()) {
     cancelAgentJob(accountId);
   }
   const proc = activeProcesses.get(accountId);
   if (!proc) return isAgentConnected();
-  manuallyStoppedIds.add(accountId);
   try {
     const pid = proc.pid;
     // Immediately SIGKILL the process and all its children
@@ -39,7 +39,9 @@ export function stopLoginProcess(accountId: number): boolean {
 }
 
 export function getActiveProcessIds(): number[] {
-  return [...activeProcesses.keys()];
+  const localIds = [...activeProcesses.keys()];
+  const agentIds = [...pendingAgentJobs.keys()];
+  return [...new Set([...localIds, ...agentIds])];
 }
 
 /**
@@ -393,6 +395,23 @@ export async function loginAccount(account: Account, options: LoginOptions = {})
       });
 
       if (!result.success) {
+        if (manuallyStoppedIds.has(account.id)) {
+          manuallyStoppedIds.delete(account.id);
+          const log = addAuthLog({
+            type: "login_failed",
+            accountId: account.id,
+            email: account.email,
+            provider,
+            error: "Stopped by user",
+            message: "Stopped by user",
+          });
+          broadcast({
+            type: "login_failed",
+            data: { logId: log.id, id: account.id, email: account.email, provider, error: "Stopped by user" },
+          });
+          return { success: false, error: "Stopped by user", noRetry: true };
+        }
+
         const errorMsg = result.error || "Agent login failed";
         await markAccountError(account.id, errorMsg);
         return { success: false, error: errorMsg, noRetry: result.noRetry };

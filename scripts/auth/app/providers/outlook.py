@@ -112,12 +112,6 @@ class OutlookProviderAdapter(ProviderAdapter):
                 # Wait for password input OR error message (up to 4 seconds)
                 error_shown = False
                 for _ in range(20):
-                    # Check if password input is visible
-                    pwd_el = await page.query_selector('input[type="password"], input[id="passwordInput"], input[name="password"]')
-                    if pwd_el and await pwd_el.is_visible():
-                        email_accepted = True
-                        break
-                    
                     # Check for error text via selectors
                     error_el = await page.query_selector('#usernameError, #MemberNameError, [id*="Error"], [id*="error"], .alert-error, .error, #error, .desc-error')
                     if error_el:
@@ -131,6 +125,16 @@ class OutlookProviderAdapter(ProviderAdapter):
                     if "username is taken" in page_content.lower() or "try another" in page_content.lower():
                         error_shown = True
                         break
+
+                    # Check if password input is visible and email input is hidden/detached
+                    pwd_el = await page.query_selector('input[type="password"], input[id="passwordInput"], input[name="password"]')
+                    email_el = await page.query_selector('input[type="email"], input[id="usernameInput"], input[name="username"]')
+                    
+                    if pwd_el and await pwd_el.is_visible():
+                        # The transition is complete only when the email field is no longer visible
+                        if not email_el or not await email_el.is_visible():
+                            email_accepted = True
+                            break
                         
                     await asyncio.sleep(0.2)
                 
@@ -146,8 +150,20 @@ class OutlookProviderAdapter(ProviderAdapter):
             await page.wait_for_selector('input[type="password"], input[id="passwordInput"], input[name="password"]', timeout=15000)
             pass_input = await page.query_selector('input[type="password"], input[id="passwordInput"], input[name="password"]')
             if pass_input:
-                await pass_input.fill(account.secret)
-                await asyncio.sleep(1)
+                # Click to focus
+                await pass_input.click()
+                await asyncio.sleep(0.5)
+                # Clear and type character by character
+                await pass_input.fill("")
+                await page.keyboard.type(account.secret, delay=50)
+                await asyncio.sleep(0.5)
+                
+                # Verify value was typed
+                typed_val = await pass_input.input_value()
+                if not typed_val:
+                    # Fallback to direct fill if typing failed to register
+                    await pass_input.fill(account.secret)
+                    await asyncio.sleep(0.5)
             else:
                 raise Exception("Password input not found")
 

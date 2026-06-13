@@ -173,6 +173,7 @@ class OutlookProviderAdapter(ProviderAdapter):
 
             # 3. Birth details (Country, Month, Day, Year)
             await page.wait_for_selector('[data-testid="countryDropdown"], select[name="countryDropdownName"]', timeout=15000)
+            await asyncio.sleep(2.0) # Let JavaScript and React finish binding event listeners
             
             birth_month_val = str(random.randint(1, 12))
             birth_day_val = str(random.randint(1, 28))
@@ -187,11 +188,51 @@ class OutlookProviderAdapter(ProviderAdapter):
                 button = await page.query_selector(button_selector)
                 if not button:
                     raise Exception(f"Dropdown button {button_selector} not found")
-                await button.click()
-                await asyncio.sleep(1)
+                
+                # Expand the dropdown using a robust retry loop (checks aria-expanded and options visibility)
+                expanded = False
+                for attempt in range(12): # Try for up to ~10 seconds
+                    is_expanded = await button.get_attribute("aria-expanded")
+                    
+                    # Also check if options are already visible
+                    visible_options = []
+                    try:
+                        visible_options = await page.query_selector_all('[role="option"], .fui-Dropdown__option, [role="listitem"]')
+                    except Exception:
+                        pass
+                        
+                    if is_expanded == "true" or (visible_options and len(visible_options) > 0):
+                        expanded = True
+                        break
+                    
+                    # Try different click methods to expand
+                    try:
+                        if attempt % 3 == 0:
+                            # Standard Playwright click
+                            await button.click(timeout=1500)
+                        elif attempt % 3 == 1:
+                            # JS click (highly reliable if element is covered or event handlers are sensitive)
+                            await page.evaluate('(el) => el.click()', button)
+                        else:
+                            # Try to click the parent div if clicking the button directly didn't work
+                            parent = await page.evaluate_handle('el => el.parentElement', button)
+                            if parent:
+                                await parent.as_element().click(timeout=1500)
+                    except Exception:
+                        pass
+                        
+                    # Also try focus + keyboard space as fallback
+                    if attempt >= 6:
+                        try:
+                            await button.focus()
+                            await page.keyboard.press("Space")
+                        except Exception:
+                            pass
+                            
+                    await asyncio.sleep(0.8)
                 
                 # Wait for popup options
-                await page.wait_for_selector('[role="option"], .fui-Dropdown__option, [role="listitem"]', timeout=5000)
+                await page.wait_for_selector('[role="option"], .fui-Dropdown__option, [role="listitem"]', timeout=8000)
                 options = await page.query_selector_all('[role="option"], .fui-Dropdown__option, [role="listitem"]')
                 if not options:
                     raise Exception(f"No options found in dropdown for {button_selector}")
@@ -203,8 +244,14 @@ class OutlookProviderAdapter(ProviderAdapter):
                     idx = target_index - 1
                 
                 idx = max(0, min(idx, len(options) - 1))
-                await options[idx].click()
-                await asyncio.sleep(0.5)
+                
+                # Click the option using standard click or JS click if blocked
+                try:
+                    await options[idx].click(timeout=2000)
+                except Exception:
+                    await page.evaluate('(el) => el.click()', options[idx])
+                    
+                await asyncio.sleep(0.8)
 
             # Select BirthMonth
             month_select = await page.query_selector('select[name="BirthMonth"]')

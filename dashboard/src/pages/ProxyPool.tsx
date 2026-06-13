@@ -452,6 +452,11 @@ export default function ProxyPool() {
                     <span className="font-mono text-sm truncate">{maskUrl(proxy.url)}</span>
                     <span className="text-xs text-[var(--muted-foreground)] shrink-0">{proxy.type}</span>
                     {statusBadge(proxy.status)}
+                    {proxy.status === "error" && proxy.errorMessage && (
+                      <span className="text-xs text-[var(--error)] font-medium truncate max-w-[150px] sm:max-w-[250px]" title={proxy.errorMessage}>
+                        ({proxy.errorMessage})
+                      </span>
+                    )}
                     {latencyBadge(proxy.latencyMs)}
                     <span className="text-xs text-[var(--muted-foreground)] shrink-0">
                       {proxy.successCount}ok / {proxy.failCount}fail

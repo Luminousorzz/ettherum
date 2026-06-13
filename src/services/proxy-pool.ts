@@ -159,26 +159,43 @@ export async function markProxyFail(id: number, error?: string) {
 // ── Health check ────────────────────────────────────────────────────
 export async function checkProxyHealth(proxyUrl: string): Promise<{ ok: boolean; latencyMs: number; error?: string; ip?: string }> {
   const start = Date.now();
-  try {
-    const proc = Bun.spawn(
-      ["curl", "-s", "-o", "/dev/null", "-w", "%{http_code}|%{remote_ip}", "--proxy", proxyUrl, "--max-time", "10", "https://httpbin.org/ip"],
-      { stdout: "pipe", stderr: "pipe" }
-    );
-    const stdout = await new Response(proc.stdout).text();
-    const exitCode = await proc.exited;
-    const latencyMs = Date.now() - start;
+  
+  // Try endpoints sequentially to bypass httpbin.org rate-limits or blocks
+  const checkTargets = [
+    { url: "https://httpbin.org/ip", expectedCode: "200" },
+    { url: "https://www.google.com", expectedCode: "200" },
+    { url: "https://login.live.com", expectedCode: "200" }
+  ];
 
-    if (exitCode !== 0) {
-      const stderr = await new Response(proc.stderr).text();
-      return { ok: false, latencyMs, error: stderr.trim() || `curl exit ${exitCode}` };
-    }
+  let lastError = "";
 
-    const [statusCode, ip] = stdout.trim().split("|");
-    if (statusCode === "200") {
-      return { ok: true, latencyMs, ip };
+  for (const target of checkTargets) {
+    try {
+      const proc = Bun.spawn(
+        ["curl", "-s", "-o", "/dev/null", "-w", "%{http_code}|%{remote_ip}", "--proxy", proxyUrl, "--max-time", "6", target.url],
+        { stdout: "pipe", stderr: "pipe" }
+      );
+      const stdout = await new Response(proc.stdout).text();
+      const exitCode = await proc.exited;
+      const latencyMs = Date.now() - start;
+
+      if (exitCode !== 0) {
+        const stderr = await new Response(proc.stderr).text();
+        lastError = stderr.trim() || `curl exit ${exitCode}`;
+        continue;
+      }
+
+      const [statusCode, ip] = stdout.trim().split("|");
+      // Google/Microsoft live might return 302 redirects, which indicates connection is perfectly healthy
+      if (statusCode === target.expectedCode || statusCode === "302") {
+        return { ok: true, latencyMs, ip: ip || undefined };
+      } else {
+        lastError = `HTTP ${statusCode}`;
+      }
+    } catch (err) {
+      lastError = err instanceof Error ? err.message : String(err);
     }
-    return { ok: false, latencyMs, error: `HTTP ${statusCode}` };
-  } catch (err) {
-    return { ok: false, latencyMs: Date.now() - start, error: err instanceof Error ? err.message : String(err) };
   }
+
+  return { ok: false, latencyMs: Date.now() - start, error: lastError || "All targets failed" };
 }

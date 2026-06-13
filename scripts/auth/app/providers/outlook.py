@@ -198,28 +198,26 @@ class OutlookProviderAdapter(ProviderAdapter):
                 await page.click(f'text="{option_text}"')
 
             # Select BirthMonth
-            month_select = await page.query_selector('select[name="BirthMonth"]')
-            if month_select and await month_select.is_visible():
-                await page.select_option('select[name="BirthMonth"]', label=birth_month_name)
-            else:
+            try:
+                await page.select_option('select[name="BirthMonth"]', index=int(birth_month_val))
+            except Exception as e:
                 try:
                     await select_fluent_dropdown('#BirthMonthDropdown, button[name="BirthMonth"]', birth_month_name)
-                except Exception as e:
+                except Exception:
                     raise Exception(f"Failed to select Birth Month: {e}")
 
-            await asyncio.sleep(1)
+            await asyncio.sleep(0.5)
 
             # Select BirthDay
-            day_select = await page.query_selector('select[name="BirthDay"]')
-            if day_select and await day_select.is_visible():
+            try:
                 await page.select_option('select[name="BirthDay"]', value=birth_day_val)
-            else:
+            except Exception as e:
                 try:
                     await select_fluent_dropdown('#BirthDayDropdown, button[name="BirthDay"]', birth_day_val)
-                except Exception as e:
+                except Exception:
                     raise Exception(f"Failed to select Birth Day: {e}")
 
-            await asyncio.sleep(1)
+            await asyncio.sleep(0.5)
 
             # Type BirthYear
             year_input = await page.query_selector('input[name="BirthYear"], input[type="number"]')

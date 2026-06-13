@@ -22,6 +22,9 @@ let lastCpuCores: { idle: number; total: number }[] = [];
 let cachedPublicIp = "";
 let lastPublicIpFetch = 0;
 
+// Global cache for analytics
+let systemCache: any = null;
+
 // Helper to execute commands and return trimmed stdout
 function runCmd(cmd: string): string {
   try {
@@ -240,370 +243,377 @@ function getLinuxDockerStats() {
   return list;
 }
 
-systemRouter.get("/analytics", async (c) => {
-  const isLinux = process.platform === "linux";
-
-  const publicIp = await getPublicIp();
-  const pingStats = getPingStats();
-
-  // System general info
-  const osType = isLinux ? "Linux (Armbian)" : "Windows (Dev Mode)";
-  const boardName = isLinux ? (runCmd("cat /sys/firmware/devicetree/base/model") || "Akari AX512 STB") : "Akari AX512 STB (Dev Board)";
-  const kernelVersion = os.release();
+// Initialize cache with realistic defaults (mock data)
+function initCache() {
   const uptime = os.uptime();
   const bootTime = new Date(Date.now() - uptime * 1000).toISOString();
-
-  // Network local IP
-  const interfaces = os.networkInterfaces();
-  let localIp = "127.0.0.1";
-  for (const name of Object.keys(interfaces)) {
-    for (const iface of interfaces[name] || []) {
-      if (iface.family === "IPv4" && !iface.internal) {
-        localIp = iface.address;
-        break;
-      }
-    }
-  }
-
-  // GATHER METRICS
-  let cpuUsage = 0;
-  let cpuCores: number[] = [0, 0, 0, 0];
-  let cpuTemp = 0;
-  let cpuFreq = 0;
-  let isThrottled = false;
-  let loadAvg = [0, 0, 0];
-
-  let ramTotal = 0;
-  let ramUsed = 0;
-  let ramFree = 0;
-  let ramBuffers = 0;
-  let ramCached = 0;
-
-  let swapTotal = 0;
-  let swapUsed = 0;
-  let swapFree = 0;
-
-  let storageTotal = 0;
-  let storageUsed = 0;
-  let storageFree = 0;
-  let storagePercent = 0;
+  const isLinux = process.platform === "linux";
   
-  let extStorage: any[] = [];
-  let storageHealth = "Healthy";
-  let ioReadSpeed = 0;
-  let ioWriteSpeed = 0;
-  
-  let sshSessionsList: any[] = [];
-  let failedLogins = 0;
-  let topProcesses: any[] = [];
-  let criticalLogs: string[] = [];
-  let dockerContainers: any[] = [];
-
-  let services = [
-    { name: "nginx", active: false, label: "Web Server" },
-    { name: "docker", active: false, label: "Docker Daemon" },
-    { name: "ssh", active: false, label: "SSH Remote Daemon" },
-    { name: "etteum", active: true, label: "Pool Proxy Backend" }
-  ];
-
-  if (isLinux) {
-    // 1. Linux CPU stats
-    const linuxCpu = getLinuxCpuUsage();
-    cpuUsage = linuxCpu.overall;
-    cpuCores = linuxCpu.cores.length ? linuxCpu.cores : [cpuUsage, cpuUsage, cpuUsage, cpuUsage];
-    
-    // CPU Temp
-    try {
-      if (fs.existsSync("/sys/class/thermal/thermal_zone0/temp")) {
-        const rawTemp = parseInt(fs.readFileSync("/sys/class/thermal/thermal_zone0/temp", "utf8"));
-        cpuTemp = rawTemp / 1000;
-      }
-    } catch {}
-
-    // CPU Freq
-    try {
-      if (fs.existsSync("/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq")) {
-        const rawFreq = parseInt(fs.readFileSync("/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq", "utf8"));
-        cpuFreq = Math.round(rawFreq / 1000);
-      }
-    } catch {}
-
-    isThrottled = cpuTemp > 78;
-    loadAvg = os.loadavg();
-
-    // 2. Linux Memory stats
-    try {
-      const meminfo = fs.readFileSync("/proc/meminfo", "utf8");
-      const lines = meminfo.split("\n");
-      const memTotal = parseInt(lines.find(l => l.startsWith("MemTotal:"))?.split(/\s+/)[1] || "0") * 1024;
-      const memFree = parseInt(lines.find(l => l.startsWith("MemFree:"))?.split(/\s+/)[1] || "0") * 1024;
-      const memBuffers = parseInt(lines.find(l => l.startsWith("Buffers:"))?.split(/\s+/)[1] || "0") * 1024;
-      const memCached = parseInt(lines.find(l => l.startsWith("Cached:"))?.split(/\s+/)[1] || "0") * 1024;
-      const memAvailable = parseInt(lines.find(l => l.startsWith("MemAvailable:"))?.split(/\s+/)[1] || "0") * 1024;
-
-      ramTotal = memTotal;
-      ramFree = memAvailable || (memFree + memBuffers + memCached);
-      ramUsed = ramTotal - ramFree;
-      ramBuffers = memBuffers;
-      ramCached = memCached;
-
-      const swTotal = parseInt(lines.find(l => l.startsWith("SwapTotal:"))?.split(/\s+/)[1] || "0") * 1024;
-      const swFree = parseInt(lines.find(l => l.startsWith("SwapFree:"))?.split(/\s+/)[1] || "0") * 1024;
-      swapTotal = swTotal;
-      swapFree = swFree;
-      swapUsed = swTotal - swFree;
-    } catch {
-      ramTotal = os.totalmem();
-      ramFree = os.freemem();
-      ramUsed = ramTotal - ramFree;
-    }
-
-    // 3. Linux Storage stats
-    try {
-      const df = runCmd("df -B1 /").split("\n")[1].split(/\s+/);
-      storageTotal = parseInt(df[1]);
-      storageUsed = parseInt(df[2]);
-      storageFree = parseInt(df[3]);
-      storagePercent = Math.round((storageUsed / storageTotal) * 100);
-    } catch {}
-
-    // External Storage
-    try {
-      const dfExt = runCmd("df -B1").split("\n").slice(1);
-      for (const line of dfExt) {
-        const parts = line.split(/\s+/);
-        const mount = parts[5] || "";
-        if (mount.startsWith("/media/") || mount.startsWith("/mnt/")) {
-          const total = parseInt(parts[1]);
-          const used = parseInt(parts[2]);
-          const free = parts[3] ? parseInt(parts[3]) : total - used;
-          extStorage.push({
-            mount,
-            total,
-            used,
-            free,
-            percent: Math.round((used / total) * 100)
-          });
-        }
-      }
-    } catch {}
-
-    // Health/wearout of eMMC
-    try {
-      if (fs.existsSync("/sys/class/block/mmcblk0/device/life_time")) {
-        const wear = fs.readFileSync("/sys/class/block/mmcblk0/device/life_time", "utf8").trim();
-        storageHealth = `Wearout status: ${wear} (Type-A/B life span)`;
-      } else {
-        storageHealth = "eMMC Normal (0x01: Life span estimated 100% remaining)";
-      }
-    } catch {
-      storageHealth = "Healthy";
-    }
-
-    // Disk I/O Speeds
-    try {
-      const ioStats = runCmd("iostat -d 1 2 -y").split("\n");
-      const diskLine = ioStats.find(l => l.startsWith("mmcblk0") || l.startsWith("sda"));
-      if (diskLine) {
-        const parts = diskLine.split(/\s+/);
-        ioReadSpeed = Math.round(parseFloat(parts[2] || "0") * 1024);
-        ioWriteSpeed = Math.round(parseFloat(parts[3] || "0") * 1024);
-      }
-    } catch {}
-
-    // 4. Linux Network update
-    updateLinuxNetwork();
-
-    // 5. Linux SSH sessions & IPs
-    sshSessionsList = getLinuxSshSessions();
-
-    // Failed login attempts
-    try {
-      failedLogins = parseInt(runCmd("grep -c 'Failed password' /var/log/auth.log || journalctl _SYSTEMD_UNIT=ssh.service | grep -c 'Failed'") || "0");
-    } catch {}
-
-    // 6. Top Processes (PID, USER, CPU, RAM, Command)
-    try {
-      const topRows = runCmd("ps -eo pid,user,pcpu,pmem,comm --sort=-pcpu | head -n 6").split("\n").slice(1);
-      topProcesses = topRows.map(row => {
-        const parts = row.trim().split(/\s+/);
-        return {
-          pid: parseInt(parts[0] || "0"),
-          user: parts[1] || "unknown",
-          cpu: parseFloat(parts[2] || "0"),
-          ram: parseFloat(parts[3] || "0"),
-          name: parts.slice(4).join(" ")
-        };
-      }).filter(p => p.name);
-    } catch {}
-
-    // 7. Services Status
-    services = services.map(s => {
-      try {
-        const activeState = runCmd(`systemctl is-active ${s.name}`) === "active";
-        return { ...s, active: activeState };
-      } catch {
-        return s;
-      }
-    });
-
-    // Docker container stats
-    dockerContainers = getLinuxDockerStats();
-
-    // 8. Critical logs
-    try {
-      criticalLogs = runCmd("dmesg -level=err,crit,alert,emerg | tail -n 10 || journalctl -p 3 -n 10").split("\n").filter(Boolean);
-    } catch {}
-
-  } else {
-    // ----------------------------------------------------
-    // WINDOWS / DEVELOPMENT MOCK METRICS
-    // ----------------------------------------------------
-    const randomVal = Math.random();
-    cpuUsage = Math.round(15 + randomVal * 30);
-    cpuCores = [
-      Math.round(10 + Math.random() * 20),
-      Math.round(25 + Math.random() * 30),
-      Math.round(5 + Math.random() * 15),
-      Math.round(15 + Math.random() * 25)
-    ];
-    cpuTemp = Math.round(48 + randomVal * 12);
-    cpuFreq = 1512;
-    isThrottled = cpuTemp > 75;
-    loadAvg = [parseFloat((0.3 + randomVal * 0.4).toFixed(2)), parseFloat((0.25 + randomVal * 0.3).toFixed(2)), 0.18];
-
-    ramTotal = 2 * 1024 * 1024 * 1024;
-    ramUsed = Math.round(ramTotal * (0.42 + randomVal * 0.1));
-    ramFree = ramTotal - ramUsed;
-    ramBuffers = 124 * 1024 * 1024;
-    ramCached = 432 * 1024 * 1024;
-
-    swapTotal = 512 * 1024 * 1024;
-    swapUsed = Math.round(swapTotal * 0.12);
-    swapFree = swapTotal - swapUsed;
-
-    storageTotal = 14.5 * 1024 * 1024 * 1024;
-    storageUsed = 6.2 * 1024 * 1024 * 1024;
-    storageFree = storageTotal - storageUsed;
-    storagePercent = Math.round((storageUsed / storageTotal) * 100);
-    storageHealth = "eMMC Healthy (wearout: 5% used, lifetime: 0.1 type-A/B)";
-
-    extStorage = [
-      { mount: "/media/usb-backup", total: 64 * 1024 * 1024 * 1024, used: 24.5 * 1024 * 1024 * 1024, free: 39.5 * 1024 * 1024 * 1024, percent: 38 }
-    ];
-
-    netThroughput = {
-      rx: Math.round(150 * 1024 + Math.random() * 850 * 1024),
-      tx: Math.round(20 * 1024 + Math.random() * 180 * 1024)
-    };
-    totalRx = 14.2 * 1024 * 1024 * 1024;
-    totalTx = 2.1 * 1024 * 1024 * 1024;
-
-    ioReadSpeed = Math.round(Math.random() * 1250 * 1024);
-    ioWriteSpeed = Math.round(Math.random() * 450 * 1024);
-
-    sshSessionsList = [
-      { user: "root", terminal: "pts/0", loginTime: "2026-06-13 18:40", ip: "192.168.1.10" },
-      { user: "admin", terminal: "pts/1", loginTime: "2026-06-13 19:10", ip: "114.24.120.35" }
-    ];
-    failedLogins = 3;
-
-    topProcesses = [
-      { pid: 26224, user: "root", cpu: 12.4, ram: 4.8, name: "etteum-agent" },
-      { pid: 1042, user: "www-data", cpu: 4.2, ram: 1.2, name: "nginx" },
-      { pid: 842, user: "root", cpu: 2.1, ram: 6.5, name: "dockerd" },
-      { pid: 1251, user: "ssh", cpu: 1.5, ram: 0.8, name: "sshd" },
-      { pid: 1, user: "root", cpu: 0.8, ram: 2.4, name: "systemd" }
-    ];
-
-    services = [
-      { name: "nginx", active: true, label: "Web Server" },
-      { name: "docker", active: true, label: "Docker Daemon" },
-      { name: "ssh", active: true, label: "SSH Remote Daemon" },
-      { name: "etteum", active: true, label: "Pool Proxy Backend" }
-    ];
-
-    dockerContainers = [
-      { name: "mariadb-prod", status: "running", cpu: "1.4%", memory: "124 MB / 2.0 GB (6.2%)" },
-      { name: "redis-cache", status: "running", cpu: "0.2%", memory: "18 MB / 2.0 GB (0.9%)" },
-      { name: "mosquitto-mqtt", status: "running", cpu: "0.1%", memory: "5.4 MB / 2.0 GB (0.2%)" }
-    ];
-
-    criticalLogs = [
-      "[   2.451892] Amlogic thermal zone0: registered thermal band",
-      "[   4.892014] eth0: Link is Up - 100Mbps/Full - flow control rx/tx",
-      "[  12.049102] EXT4-fs (mmcblk0p2): mounted filesystem with ordered data mode",
-      "[ 341.251910] sshd[1251]: Accepted password for root from 192.168.1.10 port 49122 ssh2",
-      "[ 345.920042] sshd[1284]: Failed password for invalid user admin from 114.24.120.35 port 51108 ssh2"
-    ];
-  }
-
-  return c.json({
+  systemCache = {
     device: {
-      board: boardName,
-      os: osType,
-      kernel: kernelVersion,
+      board: isLinux ? "Akari AX512 STB" : "Akari AX512 STB (Dev Board)",
+      os: isLinux ? "Linux (Armbian)" : "Windows (Dev Mode)",
+      kernel: os.release(),
       uptime,
       bootTime,
-      localIp,
-      publicIp,
-      pingLatencyMs: pingStats.latency,
-      pingPacketLoss: pingStats.packetLoss
+      localIp: "127.0.0.1",
+      publicIp: "127.0.0.1",
+      pingLatencyMs: 15,
+      pingPacketLoss: 0
     },
     cpu: {
-      overallUsage: cpuUsage,
-      cores: cpuCores,
-      tempC: cpuTemp,
-      frequencyMhz: cpuFreq,
-      throttling: isThrottled,
-      loadAverage: loadAvg
+      overallUsage: 5,
+      cores: [5, 5, 5, 5],
+      tempC: 45,
+      frequencyMhz: 1512,
+      throttling: false,
+      loadAverage: [0.1, 0.1, 0.05]
     },
     memory: {
       ram: {
-        total: ramTotal,
-        used: ramUsed,
-        free: ramFree,
-        buffers: ramBuffers,
-        cached: ramCached
+        total: os.totalmem(),
+        used: Math.round(os.totalmem() * 0.2),
+        free: Math.round(os.totalmem() * 0.8),
+        buffers: 32 * 1024 * 1024,
+        cached: 128 * 1024 * 1024
       },
       swap: {
-        total: swapTotal,
-        used: swapUsed,
-        free: swapFree
+        total: 512 * 1024 * 1024,
+        used: 0,
+        free: 512 * 1024 * 1024
       }
     },
     storage: {
       internal: {
-        total: storageTotal,
-        used: storageUsed,
-        free: storageFree,
-        percent: storagePercent,
-        health: storageHealth
+        total: 14.5 * 1024 * 1024 * 1024,
+        used: 4.5 * 1024 * 1024 * 1024,
+        free: 10 * 1024 * 1024 * 1024,
+        percent: 31,
+        health: "Healthy"
       },
-      external: extStorage,
+      external: [],
       io: {
-        readSpeedBps: ioReadSpeed,
-        writeSpeedBps: ioWriteSpeed
+        readSpeedBps: 0,
+        writeSpeedBps: 0
       }
     },
     network: {
       throughput: {
-        downloadBps: netThroughput.rx,
-        uploadBps: netThroughput.tx
+        downloadBps: 0,
+        uploadBps: 0
       },
       traffic: {
-        downloadBytes: totalRx,
-        uploadBytes: totalTx
+        downloadBytes: 10 * 1024 * 1024,
+        uploadBytes: 2 * 1024 * 1024
       }
     },
-    services,
-    dockerContainers,
+    services: [
+      { name: "nginx", active: isLinux, label: "Web Server" },
+      { name: "docker", active: isLinux, label: "Docker Daemon" },
+      { name: "ssh", active: isLinux, label: "SSH Remote Daemon" },
+      { name: "etteum", active: true, label: "Pool Proxy Backend" }
+    ],
+    dockerContainers: [],
     security: {
-      sshSessionsCount: sshSessionsList.length,
-      sshSessionsList,
-      failedLogins
+      sshSessionsCount: 0,
+      sshSessionsList: [],
+      failedLogins: 0
     },
-    topProcesses,
-    logs: criticalLogs
-  });
+    topProcesses: [
+      { pid: 1, user: "root", cpu: 0.1, ram: 0.1, name: "systemd" }
+    ],
+    logs: [
+      "System initializing..."
+    ]
+  };
+}
+
+// Background Quick Update (Every 2 seconds) - Cheap metrics only
+async function updateQuickMetrics() {
+  if (!systemCache) return;
+  
+  try {
+    const isLinux = process.platform === "linux";
+    
+    // 1. Uptime & local IP
+    systemCache.device.uptime = os.uptime();
+    
+    const interfaces = os.networkInterfaces();
+    let localIp = "127.0.0.1";
+    for (const name of Object.keys(interfaces)) {
+      for (const iface of interfaces[name] || []) {
+        if (iface.family === "IPv4" && !iface.internal) {
+          localIp = iface.address;
+          break;
+        }
+      }
+    }
+    systemCache.device.localIp = localIp;
+
+    if (isLinux) {
+      // CPU performance metrics
+      const linuxCpu = getLinuxCpuUsage();
+      systemCache.cpu.overallUsage = linuxCpu.overall;
+      systemCache.cpu.cores = linuxCpu.cores.length ? linuxCpu.cores : [linuxCpu.overall, linuxCpu.overall, linuxCpu.overall, linuxCpu.overall];
+      
+      // Temperature
+      try {
+        if (fs.existsSync("/sys/class/thermal/thermal_zone0/temp")) {
+          const rawTemp = parseInt(fs.readFileSync("/sys/class/thermal/thermal_zone0/temp", "utf8"));
+          systemCache.cpu.tempC = rawTemp / 1000;
+        }
+      } catch {}
+
+      // Frequency
+      try {
+        if (fs.existsSync("/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq")) {
+          const rawFreq = parseInt(fs.readFileSync("/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq", "utf8"));
+          systemCache.cpu.frequencyMhz = Math.round(rawFreq / 1000);
+        }
+      } catch {}
+
+      systemCache.cpu.throttling = systemCache.cpu.tempC > 78;
+      systemCache.cpu.loadAverage = os.loadavg();
+
+      // Memory metrics
+      try {
+        const meminfo = fs.readFileSync("/proc/meminfo", "utf8");
+        const lines = meminfo.split("\n");
+        const memTotal = parseInt(lines.find(l => l.startsWith("MemTotal:"))?.split(/\s+/)[1] || "0") * 1024;
+        const memFree = parseInt(lines.find(l => l.startsWith("MemFree:"))?.split(/\s+/)[1] || "0") * 1024;
+        const memBuffers = parseInt(lines.find(l => l.startsWith("Buffers:"))?.split(/\s+/)[1] || "0") * 1024;
+        const memCached = parseInt(lines.find(l => l.startsWith("Cached:"))?.split(/\s+/)[1] || "0") * 1024;
+        const memAvailable = parseInt(lines.find(l => l.startsWith("MemAvailable:"))?.split(/\s+/)[1] || "0") * 1024;
+
+        systemCache.memory.ram.total = memTotal;
+        systemCache.memory.ram.free = memAvailable || (memFree + memBuffers + memCached);
+        systemCache.memory.ram.used = memTotal - systemCache.memory.ram.free;
+        systemCache.memory.ram.buffers = memBuffers;
+        systemCache.memory.ram.cached = memCached;
+
+        const swTotal = parseInt(lines.find(l => l.startsWith("SwapTotal:"))?.split(/\s+/)[1] || "0") * 1024;
+        const swFree = parseInt(lines.find(l => l.startsWith("SwapFree:"))?.split(/\s+/)[1] || "0") * 1024;
+        systemCache.memory.swap.total = swTotal;
+        systemCache.memory.swap.free = swFree;
+        systemCache.memory.swap.used = swTotal - swFree;
+      } catch {
+        systemCache.memory.ram.total = os.totalmem();
+        systemCache.memory.ram.free = os.freemem();
+        systemCache.memory.ram.used = os.totalmem() - os.freemem();
+      }
+
+      // Storage internal percent & health
+      try {
+        const df = runCmd("df -B1 /").split("\n")[1].split(/\s+/);
+        systemCache.storage.internal.total = parseInt(df[1]);
+        systemCache.storage.internal.used = parseInt(df[2]);
+        systemCache.storage.internal.free = parseInt(df[3]);
+        systemCache.storage.internal.percent = Math.round((systemCache.storage.internal.used / systemCache.storage.internal.total) * 100);
+      } catch {}
+
+      try {
+        if (fs.existsSync("/sys/class/block/mmcblk0/device/life_time")) {
+          const wear = fs.readFileSync("/sys/class/block/mmcblk0/device/life_time", "utf8").trim();
+          systemCache.storage.internal.health = `Wearout status: ${wear} (Type-A/B life span)`;
+        } else {
+          systemCache.storage.internal.health = "eMMC Normal (0x01: Life span estimated 100% remaining)";
+        }
+      } catch {
+        systemCache.storage.internal.health = "Healthy";
+      }
+
+      // Network updates (throughput calc)
+      updateLinuxNetwork();
+      systemCache.network.throughput = {
+        downloadBps: netThroughput.rx,
+        uploadBps: netThroughput.tx
+      };
+      systemCache.network.traffic = {
+        downloadBytes: totalRx,
+        uploadBytes: totalTx
+      };
+
+      // SSH Active sessions & Security
+      systemCache.security.sshSessionsList = getLinuxSshSessions();
+      systemCache.security.sshSessionsCount = systemCache.security.sshSessionsList.length;
+
+      // Services status
+      systemCache.services = systemCache.services.map((s: any) => {
+        try {
+          const activeState = runCmd(`systemctl is-active ${s.name}`) === "active";
+          return { ...s, active: activeState };
+        } catch {
+          return s;
+        }
+      });
+
+      // Top Processes
+      try {
+        const topRows = runCmd("ps -eo pid,user,pcpu,pmem,comm --sort=-pcpu | head -n 6").split("\n").slice(1);
+        systemCache.topProcesses = topRows.map(row => {
+          const parts = row.trim().split(/\s+/);
+          return {
+            pid: parseInt(parts[0] || "0"),
+            user: parts[1] || "unknown",
+            cpu: parseFloat(parts[2] || "0"),
+            ram: parseFloat(parts[3] || "0"),
+            name: parts.slice(4).join(" ")
+          };
+        }).filter(p => p.name);
+      } catch {}
+
+    } else {
+      // Windows Mock variation logic
+      const randomVal = Math.random();
+      systemCache.cpu.overallUsage = Math.round(15 + randomVal * 30);
+      systemCache.cpu.cores = [
+        Math.round(10 + Math.random() * 20),
+        Math.round(25 + Math.random() * 30),
+        Math.round(5 + Math.random() * 15),
+        Math.round(15 + Math.random() * 25)
+      ];
+      systemCache.cpu.tempC = Math.round(48 + randomVal * 12);
+      systemCache.cpu.throttling = systemCache.cpu.tempC > 75;
+      systemCache.cpu.loadAverage = [
+        parseFloat((0.3 + randomVal * 0.4).toFixed(2)),
+        parseFloat((0.25 + randomVal * 0.3).toFixed(2)),
+        0.18
+      ];
+
+      systemCache.memory.ram.used = Math.round(systemCache.memory.ram.total * (0.42 + randomVal * 0.1));
+      systemCache.memory.ram.free = systemCache.memory.ram.total - systemCache.memory.ram.used;
+
+      systemCache.network.throughput = {
+        downloadBps: Math.round(150 * 1024 + Math.random() * 850 * 1024),
+        uploadBps: Math.round(20 * 1024 + Math.random() * 180 * 1024)
+      };
+      systemCache.network.traffic.downloadBytes += systemCache.network.throughput.downloadBps * 2;
+      systemCache.network.traffic.uploadBytes += systemCache.network.throughput.uploadBps * 2;
+      
+      // Rotate mock top processes slightly
+      systemCache.topProcesses = [
+        { pid: 26224, user: "root", cpu: parseFloat((10 + Math.random() * 10).toFixed(1)), ram: 4.8, name: "etteum-agent" },
+        { pid: 1042, user: "www-data", cpu: parseFloat((3 + Math.random() * 4).toFixed(1)), ram: 1.2, name: "nginx" },
+        { pid: 842, user: "root", cpu: parseFloat((1 + Math.random() * 3).toFixed(1)), ram: 6.5, name: "dockerd" },
+        { pid: 1251, user: "ssh", cpu: 1.5, ram: 0.8, name: "sshd" },
+        { pid: 1, user: "root", cpu: 0.8, ram: 2.4, name: "systemd" }
+      ];
+    }
+  } catch (err) {
+    console.error("Error in updateQuickMetrics background loop:", err);
+  }
+}
+
+// Background Slow Update (Every 10 seconds) - Heavy CLI commands & Network fetches
+async function updateSlowMetrics() {
+  if (!systemCache) return;
+
+  try {
+    const isLinux = process.platform === "linux";
+    
+    // 1. Fetch public IP
+    const publicIp = await getPublicIp();
+    systemCache.device.publicIp = publicIp;
+
+    // 2. Ping statistics (blocking CLI)
+    const pingStats = getPingStats();
+    systemCache.device.pingLatencyMs = pingStats.latency;
+    systemCache.device.pingPacketLoss = pingStats.packetLoss;
+
+    if (isLinux) {
+      // External Storage
+      try {
+        const extStorage: any[] = [];
+        const dfExt = runCmd("df -B1").split("\n").slice(1);
+        for (const line of dfExt) {
+          const parts = line.split(/\s+/);
+          const mount = parts[5] || "";
+          if (mount.startsWith("/media/") || mount.startsWith("/mnt/")) {
+            const total = parseInt(parts[1]);
+            const used = parseInt(parts[2]);
+            const free = parts[3] ? parseInt(parts[3]) : total - used;
+            extStorage.push({
+              mount,
+              total,
+              used,
+              free,
+              percent: Math.round((used / total) * 100)
+            });
+          }
+        }
+        systemCache.storage.external = extStorage;
+      } catch {}
+
+      // Disk I/O speeds
+      try {
+        const ioStats = runCmd("iostat -d 1 2 -y").split("\n");
+        const diskLine = ioStats.find(l => l.startsWith("mmcblk0") || l.startsWith("sda"));
+        if (diskLine) {
+          const parts = diskLine.split(/\s+/);
+          systemCache.storage.io.readSpeedBps = Math.round(parseFloat(parts[2] || "0") * 1024);
+          systemCache.storage.io.writeSpeedBps = Math.round(parseFloat(parts[3] || "0") * 1024);
+        }
+      } catch {}
+
+      // Failed login attempts
+      try {
+        systemCache.security.failedLogins = parseInt(
+          runCmd("grep -c 'Failed password' /var/log/auth.log || journalctl _SYSTEMD_UNIT=ssh.service | grep -c 'Failed'") || "0"
+        );
+      } catch {}
+
+      // Docker stats
+      systemCache.dockerContainers = getLinuxDockerStats();
+
+      // Critical system logs
+      try {
+        const logsRaw = runCmd("dmesg -level=err,crit,alert,emerg | tail -n 12 || journalctl -p 3 -n 12");
+        systemCache.logs = logsRaw.split("\n").filter(Boolean);
+      } catch {}
+
+    } else {
+      // Windows mock slow metrics
+      systemCache.storage.external = [
+        { mount: "/media/usb-backup", total: 64 * 1024 * 1024 * 1024, used: 24.5 * 1024 * 1024 * 1024, free: 39.5 * 1024 * 1024 * 1024, percent: 38 }
+      ];
+      systemCache.storage.io.readSpeedBps = Math.round(Math.random() * 1250 * 1024);
+      systemCache.storage.io.writeSpeedBps = Math.round(Math.random() * 450 * 1024);
+      systemCache.security.failedLogins = 3;
+      
+      systemCache.dockerContainers = [
+        { name: "mariadb-prod", status: "running", cpu: `${(1 + Math.random() * 2).toFixed(1)}%`, memory: "124 MB / 2.0 GB (6.2%)" },
+        { name: "redis-cache", status: "running", cpu: "0.2%", memory: "18 MB / 2.0 GB (0.9%)" },
+        { name: "mosquitto-mqtt", status: "running", cpu: "0.1%", memory: "5.4 MB / 2.0 GB (0.2%)" }
+      ];
+
+      systemCache.logs = [
+        "[   2.451892] Amlogic thermal zone0: registered thermal band",
+        "[   4.892014] eth0: Link is Up - 100Mbps/Full - flow control rx/tx",
+        "[  12.049102] EXT4-fs (mmcblk0p2): mounted filesystem with ordered data mode",
+        "[ 341.251910] sshd[1251]: Accepted password for root from 192.168.1.10 port 49122 ssh2",
+        "[ 345.920042] sshd[1284]: Failed password for invalid user admin from 114.24.120.35 port 51108 ssh2"
+      ];
+    }
+  } catch (err) {
+    console.error("Error in updateSlowMetrics background loop:", err);
+  }
+}
+
+// Start Background Interval Loops
+initCache();
+updateQuickMetrics();
+updateSlowMetrics();
+setInterval(updateQuickMetrics, 2000);
+setInterval(updateSlowMetrics, 10000);
+
+// Route Handler
+systemRouter.get("/analytics", async (c) => {
+  if (!systemCache) {
+    initCache();
+    await updateQuickMetrics();
+    await updateSlowMetrics();
+  }
+  
+  // Return instantly from memory cache
+  return c.json(systemCache);
 });

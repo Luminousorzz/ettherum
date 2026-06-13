@@ -24,11 +24,11 @@ const OutlookMail = lazy(() => import("./pages/OutlookMail"));
 const CodexOAuthCallback = lazy(() => import("./pages/CodexOAuthCallback"));
 
 // Server Pages
-const CpuPerformance = lazy(() => import("./pages/server/CpuPerformance"));
-const MemoryStorage = lazy(() => import("./pages/server/MemoryStorage"));
-const NetworkConnection = lazy(() => import("./pages/server/NetworkConnection"));
-const ServicesManagement = lazy(() => import("./pages/server/ServicesManagement"));
-const SystemSecurity = lazy(() => import("./pages/server/SystemSecurity"));
+import CpuPerformance from "./pages/server/CpuPerformance";
+import MemoryStorage from "./pages/server/MemoryStorage";
+import NetworkConnection from "./pages/server/NetworkConnection";
+import ServicesManagement from "./pages/server/ServicesManagement";
+import SystemSecurity from "./pages/server/SystemSecurity";
 
 function RouteFallback() {
   return <div className="flex h-64 items-center justify-center text-sm text-[var(--muted-foreground)]">Loading...</div>;

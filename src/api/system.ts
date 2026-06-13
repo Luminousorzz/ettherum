@@ -404,11 +404,19 @@ async function updateQuickMetrics() {
 
       // Storage internal percent & health
       try {
-        const df = runCmd("df -B1 /").split("\n")[1].split(/\s+/);
-        systemCache.storage.internal.total = parseInt(df[1]);
-        systemCache.storage.internal.used = parseInt(df[2]);
-        systemCache.storage.internal.free = parseInt(df[3]);
-        systemCache.storage.internal.percent = Math.round((systemCache.storage.internal.used / systemCache.storage.internal.total) * 100);
+        const dfLines = runCmd("df -B1 /").split("\n").slice(1);
+        const combined = dfLines.join(" ").trim().split(/\s+/).filter(Boolean);
+        if (combined.length >= 5) {
+          const total = parseInt(combined[combined.length - 5]);
+          const used = parseInt(combined[combined.length - 4]);
+          const free = parseInt(combined[combined.length - 3]);
+          if (!isNaN(total) && !isNaN(used)) {
+            systemCache.storage.internal.total = total;
+            systemCache.storage.internal.used = used;
+            systemCache.storage.internal.free = isNaN(free) ? total - used : free;
+            systemCache.storage.internal.percent = Math.round((used / total) * 100);
+          }
+        }
       } catch {}
 
       try {
@@ -526,19 +534,22 @@ async function updateSlowMetrics() {
         const extStorage: any[] = [];
         const dfExt = runCmd("df -B1").split("\n").slice(1);
         for (const line of dfExt) {
-          const parts = line.split(/\s+/);
-          const mount = parts[5] || "";
+          const parts = line.trim().split(/\s+/).filter(Boolean);
+          if (parts.length < 5) continue;
+          const mount = parts[parts.length - 1];
           if (mount.startsWith("/media/") || mount.startsWith("/mnt/")) {
-            const total = parseInt(parts[1]);
-            const used = parseInt(parts[2]);
-            const free = parts[3] ? parseInt(parts[3]) : total - used;
-            extStorage.push({
-              mount,
-              total,
-              used,
-              free,
-              percent: Math.round((used / total) * 100)
-            });
+            const total = parseInt(parts[parts.length - 5]);
+            const used = parseInt(parts[parts.length - 4]);
+            const free = parseInt(parts[parts.length - 3]);
+            if (!isNaN(total) && !isNaN(used)) {
+              extStorage.push({
+                mount,
+                total,
+                used,
+                free: isNaN(free) ? total - used : free,
+                percent: Math.round((used / total) * 100)
+              });
+            }
           }
         }
         systemCache.storage.external = extStorage;

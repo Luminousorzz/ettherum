@@ -108,31 +108,37 @@ class OutlookProviderAdapter(ProviderAdapter):
                 
                 # Click next
                 await page.click('button[data-testid="primaryButton"], button[type="submit"], input[type="submit"]')
-                await asyncio.sleep(2)
                 
-                # Check if usernameError is shown
+                # Wait for password input OR error message (up to 4 seconds)
                 error_shown = False
-                error_el = await page.query_selector('#usernameError, [id*="Error"], .alert-error')
-                if error_el:
-                    error_text = await error_el.inner_text()
-                    if error_text.strip():
-                        error_shown = True
-                
-                if not error_shown:
-                    # Check if password input is now visible
-                    password_visible = False
-                    try:
-                        await page.wait_for_selector('input[type="password"], input[id="passwordInput"], input[name="password"]', timeout=3000)
-                        password_visible = True
-                    except Exception:
-                        pass
-                    
-                    if password_visible:
+                for _ in range(20):
+                    # Check if password input is visible
+                    pwd_el = await page.query_selector('input[type="password"], input[id="passwordInput"], input[name="password"]')
+                    if pwd_el and await pwd_el.is_visible():
                         email_accepted = True
                         break
+                    
+                    # Check for error text via selectors
+                    error_el = await page.query_selector('#usernameError, #MemberNameError, [id*="Error"], [id*="error"], .alert-error, .error, #error, .desc-error')
+                    if error_el:
+                        error_text = await error_el.inner_text()
+                        if error_text and any(word in error_text.lower() for word in ["taken", "already", "try another", "error", "invalid", "use"]):
+                            error_shown = True
+                            break
+                    
+                    # Fallback check on raw page content for "taken" messages
+                    page_content = await page.content()
+                    if "username is taken" in page_content.lower() or "try another" in page_content.lower():
+                        error_shown = True
+                        break
+                        
+                    await asyncio.sleep(0.2)
+                
+                if email_accepted:
+                    break
 
             if not email_accepted:
-                raise Exception("Failed to find an available email username after 5 attempts")
+                raise Exception("Failed to find an available email username after 50 attempts")
 
             actual_registered_email = f"{email_part}@outlook.com"
 

@@ -11,6 +11,28 @@ import { warmupAccount } from "../auth/warmup-runner";
 import { pool, type ProviderName } from "../proxy/pool";
 import { activateQoderPat } from "../proxy/providers/qoder";
 
+function generateOutlookCredentials() {
+  const firstNames = ["james", "john", "robert", "michael", "william", "david", "richard", "joseph", "thomas", "charles", "christopher", "daniel", "matthew", "anthony", "mark", "donald", "steven", "paul", "andrew", "joshua", "kenneth", "kevin", "brian", "george", "edward", "ronald", "timothy", "jason", "jeffrey", "ryan", "jacob", "gary", "nicholas", "eric", "jonathan", "stephen", "larry", "justin", "scott", "brandon", "frank", "benjamin", "gregory", "samuel", "raymond", "patrick", "alexander", "jack", "dennis", "jerry"];
+  const lastNames = ["smith", "johnson", "williams", "brown", "jones", "garcia", "miller", "davis", "rodriguez", "martinez", "hernandez", "lopez", "gonzalez", "wilson", "anderson", "thomas", "taylor", "moore", "jackson", "martin", "lee", "perez", "thompson", "white", "harris", "sanchez", "clark", "ramirez", "lewis", "robinson", "walker", "young", "allen", "king", "wright", "scott", "torres", "nguyen", "hill", "flores", "green", "adams", "nelson", "baker", "hall", "rivera", "campbell", "mitchell", "carter", "roberts"];
+  const first = firstNames[Math.floor(Math.random() * firstNames.length)]!;
+  const last = lastNames[Math.floor(Math.random() * lastNames.length)]!;
+  const email = `${first}${last}@outlook.com`.toLowerCase();
+
+  const chars = "abcdefghijklmnopqrstuvwxyz";
+  const caps = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+  const nums = "0123456789";
+  const syms = "!@#$*";
+  const passParts = [
+    Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join(""),
+    Array.from({ length: 3 }, () => caps[Math.floor(Math.random() * caps.length)]).join(""),
+    Array.from({ length: 3 }, () => nums[Math.floor(Math.random() * nums.length)]).join(""),
+    Array.from({ length: 2 }, () => syms[Math.floor(Math.random() * syms.length)]).join(""),
+  ];
+  const password = passParts.join("").split("").sort(() => 0.5 - Math.random()).join("");
+  
+  return { email, password };
+}
+
 export const accountsRouter = new Hono();
 
 /**
@@ -413,10 +435,38 @@ accountsRouter.post("/", async (c) => {
     status?: "active" | "pending";
     browserEngine?: string;
     headless?: boolean;
+    count?: number;
   }>();
 
   if (!body.provider) {
     return c.json({ error: "provider is required" }, 400);
+  }
+
+  if (body.provider === "outlook" && body.count !== undefined) {
+    const count = Math.min(Math.max(body.count, 1), 50);
+    const createdList = [];
+    for (let i = 0; i < count; i++) {
+      const creds = generateOutlookCredentials();
+      const encryptedPassword = encrypt(creds.password);
+      const newAccount: NewAccount = {
+        provider: "outlook",
+        email: creds.email,
+        password: encryptedPassword,
+        status: "pending",
+        tokens: null,
+      };
+
+      const result = await db.insert(accounts).values(newAccount).returning();
+      const created = result[0]!;
+      pool.invalidate("outlook");
+      broadcast({
+        type: "account_created",
+        data: { id: created.id, provider: "outlook", email: created.email },
+      });
+      loginQueue.enqueue(created.id, { browserEngine: body.browserEngine, headless: body.headless });
+      createdList.push({ ...created, password: "***", tokens: null });
+    }
+    return c.json({ success: true, count: createdList.length, accounts: createdList }, 201);
   }
 
   if (body.provider === "qoder" && body.personalToken) {

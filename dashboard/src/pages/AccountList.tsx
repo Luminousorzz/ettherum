@@ -315,8 +315,7 @@ export default function AccountList() {
         </div>
       )}
 
-      {/* Active Automation Dashboard for this provider */}
-      <ActiveAutomationPanel provider={provider as any} />
+
 
       {/* Search & Filter */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">

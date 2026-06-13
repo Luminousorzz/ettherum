@@ -101,6 +101,7 @@ export default function Accounts() {
   const [now, setNow] = useState<number>(Date.now());
 
   const [addForm, setAddForm] = useState({ email: "", password: "", provider: "kiro" as Provider, browserEngine: "camoufox", headless: true });
+  const [outlookCount, setOutlookCount] = useState(1);
   const [addDialogProvider, setAddDialogProvider] = useState<Provider | null>(null);
   const [instantTokens, setInstantTokens] = useState("");
   const [cookieValue, setCookieValue] = useState("");
@@ -312,10 +313,21 @@ export default function Accounts() {
   async function handleAdd() {
     if (!addDialogProvider) return;
     try {
-      const payload: any = { email: addForm.email, password: addForm.password, provider: addDialogProvider, headless: addForm.headless, browserEngine: addForm.browserEngine };
+      let payload: any;
+      if (addDialogProvider === "outlook") {
+        payload = {
+          provider: "outlook",
+          count: outlookCount,
+          headless: addForm.headless,
+          browserEngine: addForm.browserEngine
+        };
+      } else {
+        payload = { email: addForm.email, password: addForm.password, provider: addDialogProvider, headless: addForm.headless, browserEngine: addForm.browserEngine };
+      }
       await createAccount(payload);
-      showSuccess("Account added and bot login started.");
+      showSuccess(addDialogProvider === "outlook" ? `Queued ${outlookCount} Outlook accounts registration.` : "Account added and bot login started.");
       setAddForm({ email: "", password: "", provider: "kiro", browserEngine: "camoufox", headless: true });
+      setOutlookCount(1);
       setAddDialogProvider(null);
       await load();
       navigate("/bot-logs");
@@ -794,8 +806,7 @@ export default function Accounts() {
         </div>
       )}
 
-      {/* Active Automation Panel */}
-      <ActiveAutomationPanel />
+
 
       {/* Provider cards */}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
@@ -1407,25 +1418,40 @@ export default function Accounts() {
             </div>
           )}
 
-          {/* Single mode (all providers) */}
-          {addMode === "single" && (
+          {/* Outlook registration mode */}
+          {addDialogProvider === "outlook" ? (
             <div className="space-y-4">
               <div>
-                <label className="text-sm text-[var(--foreground)] flex justify-between items-center">
-                  <span>Email</span>
-                  {addDialogProvider === "outlook" && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const creds = generateOutlookCredentials();
-                        setAddForm((prev) => ({ ...prev, email: creds.email, password: creds.password }));
-                      }}
-                      className="text-xs text-[var(--primary)] hover:underline flex items-center gap-1"
-                    >
-                      ✨ Auto-Generate
-                    </button>
-                  )}
-                </label>
+                <label className="text-sm text-[var(--foreground)]">Mau buat berapa akun?</label>
+                <Input
+                  type="number"
+                  min={1}
+                  max={50}
+                  value={outlookCount}
+                  onChange={(e) => setOutlookCount(Math.min(Math.max(Number(e.target.value), 1), 50))}
+                  className="mt-1"
+                />
+              </div>
+              <div>
+                <label className="text-sm text-[var(--foreground)]">Browser Engine</label>
+                <select value={addForm.browserEngine} onChange={(e) => setAddForm({ ...addForm, browserEngine: e.target.value })} className="mt-1 w-full h-9 rounded-md border border-[var(--border)] bg-[var(--background)] px-3 text-sm text-[var(--foreground)]">
+                  <option value="camoufox">Camoufox (Anti-detect, default)</option>
+                  <option value="chromium">Chromium (Playwright)</option>
+                </select>
+              </div>
+              <label className="flex items-center gap-2 text-sm text-[var(--foreground)]">
+                <input type="checkbox" checked={addForm.headless} onChange={(e) => setAddForm({ ...addForm, headless: e.target.checked })} className="h-4 w-4 rounded border-[var(--border)]" />
+                Run browser headless
+              </label>
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setAddDialogProvider(null)}>Cancel</Button>
+                <Button onClick={handleAdd}>Register Accounts</Button>
+              </div>
+            </div>
+          ) : addMode === "single" && (
+            <div className="space-y-4">
+              <div>
+                <label className="text-sm text-[var(--foreground)]">Email</label>
                 <Input value={addForm.email} onChange={(e) => setAddForm({ ...addForm, email: e.target.value })} placeholder="email@example.com" className="mt-1" />
               </div>
               <div>

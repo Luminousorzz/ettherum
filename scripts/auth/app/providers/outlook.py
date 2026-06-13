@@ -88,7 +88,7 @@ class OutlookProviderAdapter(ProviderAdapter):
             email_part = original_email_part
             email_accepted = False
 
-            for attempt in range(5):
+            for attempt in range(50):
                 if attempt > 0:
                     # Append 3 random letters to make it unique
                     suffix = "".join(random.choices("abcdefghijklmnopqrstuvwxyz", k=3))

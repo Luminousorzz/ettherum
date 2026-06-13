@@ -4,7 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { clearAuthLogs, fetchAuthLogs, fetchAuthQueue, fetchWarmupQueue, loginAccount, loginAccounts, stopAllAccounts } from "@/lib/api";
 import { useWsEvent, useWsStatus } from "@/hooks/useWebSocket";
-import { AlertTriangle, CheckCircle, ChevronDown, RefreshCw, RotateCcw, Trash2, Radio, StopCircle } from "lucide-react";
+import { AlertTriangle, CheckCircle, ChevronDown, RefreshCw, RotateCcw, Trash2, Radio, StopCircle, Laptop, Tv } from "lucide-react";
 import { formatTimeID } from "@/lib/utils";
 
 interface AuthLog {
@@ -119,6 +119,27 @@ export default function BotLogs() {
   const wsStatus = useWsStatus();
   const connected = wsStatus === "open";
 
+  const [screenshots, setScreenshots] = useState<Record<number, { email: string; provider: string; imageData: string; timestamp: number }>>({});
+
+  // Clean up stale screens after 15 seconds of no updates
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const now = Date.now();
+      setScreenshots((prev) => {
+        let changed = false;
+        const next = { ...prev };
+        for (const [id, s] of Object.entries(next)) {
+          if (now - s.timestamp > 15000) {
+            delete next[Number(id)];
+            changed = true;
+          }
+        }
+        return changed ? next : prev;
+      });
+    }, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
   async function load() {
     const [logRes, queueRes] = await Promise.all([
       fetchAuthLogs(300) as Promise<{ data: AuthLog[] }>,
@@ -177,6 +198,33 @@ export default function BotLogs() {
     };
     setLogs((current) => mergeLogs(current, [log]));
     scheduleQueueRefresh();
+  });
+
+  useWsEvent("live_screenshot", (msg) => {
+    const data = msg.data;
+    if (data && data.accountId) {
+      setScreenshots((prev) => ({
+        ...prev,
+        [data.accountId]: {
+          email: data.email,
+          provider: data.provider,
+          imageData: data.imageData,
+          timestamp: Date.now(),
+        },
+      }));
+    }
+  });
+
+  useWsEvent(["login_success", "login_failed"], (msg) => {
+    const data = msg.data;
+    if (data && (data.id || data.accountId)) {
+      const id = data.id || data.accountId;
+      setScreenshots((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
+    }
   });
 
   const failed = useMemo(() => logs.filter((log) => log.type === "login_failed"), [logs]);
@@ -292,82 +340,103 @@ export default function BotLogs() {
         </Card>
       )}
 
-      <Card className="border-[var(--border)]">
-        <CardHeader><CardTitle className="text-base">Login Progress</CardTitle></CardHeader>
-        <CardContent className="p-0">
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-[var(--border)]">
-                  <th className="text-left text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wide p-4">Time</th>
-                  <th className="text-left text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wide p-4">Status</th>
-                  <th className="text-left text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wide p-4 hidden md:table-cell">Account</th>
-                  <th className="text-left text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wide p-4 hidden md:table-cell">Provider</th>
-                  <th className="text-left text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wide p-4 hidden lg:table-cell">Step</th>
-                  <th className="text-left text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wide p-4">Message</th>
-                </tr>
-              </thead>
-              <tbody>
-                {processes.slice((page - 1) * perPage, page * perPage).map((process) => (
-                  <Fragment key={process.key}>
-                    <tr
-                      className="cursor-pointer border-b border-[var(--border)] last:border-0 hover:bg-[var(--secondary)]/50"
-                      onClick={() => setExpanded((current) => current === process.key ? null : process.key)}
-                    >
-                      <td className="p-4 text-xs text-[var(--muted-foreground)] font-mono">{formatTimeID(process.updatedAt)}</td>
-                      <td className="p-4"><Badge variant={processStatusVariant(process)}>{processStatusLabel(process)}</Badge></td>
-                      <td className="p-4 text-sm text-[var(--foreground)] hidden md:table-cell">{process.latest.email || (process.latest.accountId ? `#${process.latest.accountId}` : "-")}</td>
-                      <td className="p-4 text-sm text-[var(--muted-foreground)] hidden md:table-cell">{providerLabel(process.latest.provider)}</td>
-                      <td className="p-4 text-xs text-[var(--muted-foreground)] hidden lg:table-cell">{process.latest.step || process.operation}</td>
-                      <td className="p-4 text-sm text-[var(--muted-foreground)]">
-                        <div className="flex items-center gap-2">
-                          {processStatusLabel(process) === "success" && <CheckCircle className="w-4 h-4 text-[var(--success)]" />}
-                          {processStatusLabel(process) === "error" && <AlertTriangle className="w-4 h-4 text-[var(--error)]" />}
-                          {processStatusLabel(process) !== "success" && processStatusLabel(process) !== "error" && (process.latest.type === "login_progress" || process.latest.type === "queue_processing" || process.latest.type === "warmup_processing") && <span className="h-2 w-2 rounded-full bg-[var(--warning)]" />}
-                          <span className="min-w-0 flex-1 truncate">{process.latest.error || process.latest.message || "-"}</span>
-                          <span className="shrink-0 text-xs text-[var(--muted-foreground)]">{process.events.length} steps</span>
-                          <ChevronDown className={`h-4 w-4 shrink-0 transition-transform ${expanded === process.key ? "rotate-180" : ""}`} />
-                        </div>
-                      </td>
-                    </tr>
-                    {expanded === process.key && (
-                      <tr className="border-b border-[var(--border)] bg-[var(--secondary)]/20">
-                        <td colSpan={6} className="p-4">
-                          <div className="space-y-2">
-                            {process.events.map((log) => (
-                              <div key={`${log.id}-${log.timestamp}`} className="grid grid-cols-[80px_120px_1fr] gap-3 rounded-md border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-xs">
-                                <span className="font-mono text-[var(--muted-foreground)]">{formatTimeID(log.timestamp)}</span>
-                                <span className="text-[var(--muted-foreground)]">{log.step || statusLabel(log.type)}</span>
-                                <span className={log.error ? "text-[var(--error)]" : "text-[var(--foreground)]"}>{log.error || log.message || "-"}</span>
-                              </div>
-                            ))}
-                          </div>
-                        </td>
-                      </tr>
-                    )}
-                  </Fragment>
-                ))}
-                {processes.length === 0 && (
-                  <tr><td colSpan={6} className="p-8 text-center text-sm text-[var(--muted-foreground)]">No login logs yet. Add an account or start login to see progress.</td></tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-          {/* Pagination */}
-          {processes.length > perPage && (
-            <div className="flex items-center justify-between border-t border-[var(--border)] px-4 py-3">
-              <p className="text-xs text-[var(--muted-foreground)]">
-                {(page - 1) * perPage + 1}–{Math.min(page * perPage, processes.length)} of {processes.length}
-              </p>
-              <div className="flex items-center gap-2">
-                <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>Prev</Button>
-                <span className="text-xs text-[var(--muted-foreground)]">{page}/{Math.ceil(processes.length / perPage)}</span>
-                <Button variant="outline" size="sm" disabled={page >= Math.ceil(processes.length / perPage)} onClick={() => setPage(page + 1)}>Next</Button>
+      {/* Split CCTV Previews & Log Progress */}
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_420px] gap-6 items-start">
+        {/* CCTV Previews */}
+        <Card className="border-[var(--border)] overflow-hidden">
+          <CardHeader className="bg-[var(--secondary)]/10 border-b border-[var(--border)]">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Radio className="w-4 h-4 text-rose-500 animate-pulse" />
+              Live Browser CCTV Previews
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-4 bg-zinc-950/40 min-h-[350px] flex flex-col justify-center">
+            {Object.keys(screenshots).length === 0 ? (
+              <div className="text-center p-8 text-[var(--muted-foreground)] space-y-2">
+                <Laptop className="w-12 h-12 mx-auto opacity-30 text-[var(--primary)]" />
+                <h4 className="text-sm font-semibold">No Active Browser Sessions</h4>
+                <p className="text-xs opacity-70">Screenshots from active login bots will appear here in real-time.</p>
               </div>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+            ) : (
+              <div className={`grid gap-4 ${
+                Object.keys(screenshots).length === 1 
+                  ? "grid-cols-1" 
+                  : Object.keys(screenshots).length === 2 
+                  ? "grid-cols-1 sm:grid-cols-2" 
+                  : "grid-cols-1 sm:grid-cols-2 xl:grid-cols-3"
+              }`}>
+                {Object.entries(screenshots).map(([accountId, screen]) => (
+                  <div key={accountId} className="border border-[var(--border)] rounded-lg overflow-hidden bg-black relative aspect-video flex items-center justify-center group shadow-md">
+                    <img src={screen.imageData} alt="CCTV Screen" className="w-full h-full object-contain" />
+                    <div className="absolute top-2 left-2 right-2 flex justify-between items-center bg-black/70 px-2 py-1 rounded text-[10px] text-white">
+                      <span className="font-semibold truncate max-w-[70%]">{screen.email}</span>
+                      <span className="flex items-center gap-1 text-[9px] bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-1.5 py-0.5 rounded-full font-medium">
+                        <span className="w-1 h-1 rounded-full bg-emerald-400 animate-pulse" />
+                        {providerLabel(screen.provider)}
+                      </span>
+                    </div>
+                    <div className="absolute bottom-2 left-2 bg-black/60 px-1.5 py-0.5 rounded text-[9px] text-gray-300">
+                      ID: #{accountId}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Log Progress Sidebar */}
+        <Card className="border-[var(--border)]">
+          <CardHeader className="bg-[var(--secondary)]/10 border-b border-[var(--border)]">
+            <CardTitle className="text-base">Login Progress Logs</CardTitle>
+          </CardHeader>
+          <CardContent className="p-0 max-h-[600px] overflow-y-auto divide-y divide-[var(--border)]">
+            {processes.length === 0 ? (
+              <div className="p-8 text-center text-xs text-[var(--muted-foreground)]">No logs available.</div>
+            ) : (
+              processes.map((process) => {
+                const isExpanded = expanded === process.key;
+                return (
+                  <div key={process.key} className="transition-colors hover:bg-[var(--secondary)]/10">
+                    <div 
+                      className="p-3 text-xs flex flex-col gap-2 cursor-pointer"
+                      onClick={() => setExpanded(current => current === process.key ? null : process.key)}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-semibold text-[var(--foreground)] truncate max-w-[180px]">{process.latest.email || `#${process.latest.accountId}`}</span>
+                        <span className="text-[10px] text-[var(--muted-foreground)] font-mono">{formatTimeID(process.updatedAt)}</span>
+                      </div>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-[10px] text-[var(--muted-foreground)]">{providerLabel(process.latest.provider)} · {process.latest.step || process.operation}</span>
+                        <Badge variant={processStatusVariant(process)} className="text-[9px] px-1 py-0 scale-90">{processStatusLabel(process)}</Badge>
+                      </div>
+                      <div className="text-[11px] text-[var(--muted-foreground)] line-clamp-2 leading-relaxed flex items-start gap-1.5">
+                        {processStatusLabel(process) === "success" && <CheckCircle className="w-3.5 h-3.5 text-[var(--success)] shrink-0 mt-0.5" />}
+                        {processStatusLabel(process) === "error" && <AlertTriangle className="w-3.5 h-3.5 text-[var(--error)] shrink-0 mt-0.5" />}
+                        {processStatusLabel(process) !== "success" && processStatusLabel(process) !== "error" && <span className="h-1.5 w-1.5 rounded-full bg-[var(--warning)] shrink-0 mt-1.5" />}
+                        <span className="flex-1 min-w-0">{process.latest.error || process.latest.message || "-"}</span>
+                      </div>
+                    </div>
+                    {isExpanded && (
+                      <div className="bg-[var(--secondary)]/20 p-2 space-y-1.5 border-t border-[var(--border)]">
+                        {process.events.map((log) => (
+                          <div key={`${log.id}-${log.timestamp}`} className="p-2 rounded bg-[var(--card)] border border-[var(--border)] text-[10px] space-y-0.5">
+                            <div className="flex justify-between text-[9px] text-[var(--muted-foreground)]">
+                              <span>{log.step || statusLabel(log.type)}</span>
+                              <span className="font-mono">{formatTimeID(log.timestamp)}</span>
+                            </div>
+                            <p className={log.error ? "text-[var(--error)]" : "text-[var(--foreground)]"}>{log.error || log.message || "-"}</p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })
+            )}
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }

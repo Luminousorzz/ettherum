@@ -95,11 +95,11 @@ export default function AppStore() {
 
       const customRes = await fetchApi<CustomService[]>("/api/apps/custom");
       setCustomServicesList(customRes);
-
-      setLoading(false);
-    } catch (err) {
+    } catch (err: any) {
       console.error("Failed to load Apps data:", err);
+      setStatusMessage(`Load failed: ${err.message || String(err)}`);
     } finally {
+      setLoading(false);
       setRefreshing(false);
     }
   };

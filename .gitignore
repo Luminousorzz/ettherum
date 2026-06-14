@@ -66,7 +66,7 @@ data/
 *.sqlite-shm
 
 # Drizzle migrations
-drizzle/
+# drizzle/
 
 # Bun lockfile (optional - some prefer to commit this)
 # bun.lock

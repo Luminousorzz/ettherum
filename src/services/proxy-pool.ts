@@ -182,6 +182,11 @@ export async function checkProxyHealth(proxyUrl: string): Promise<{ ok: boolean;
       if (exitCode !== 0) {
         const stderr = await new Response(proc.stderr).text();
         lastError = stderr.trim() || `curl exit ${exitCode}`;
+        // If it's a network timeout (28), connection failure (7), got nothing (52), or receive error (56),
+        // the proxy is completely down/blocked. Don't waste time trying the next targets.
+        if (exitCode === 7 || exitCode === 28 || exitCode === 52 || exitCode === 56) {
+          break;
+        }
         continue;
       }
 

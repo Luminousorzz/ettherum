@@ -107,10 +107,22 @@ proxyPoolRouter.post("/pool/check-all", async (c) => {
   const proxies = await db
     .select()
     .from(proxyPool)
-    .where(eq(proxyPool.status, "active"));
+    .where(inArray(proxyPool.status, ["active", "error"]));
 
-  const results = await Promise.allSettled(
-    proxies.map(async (proxy) => {
+  if (proxies.length === 0) {
+    return c.json({ checked: 0, results: [] });
+  }
+
+  const concurrency = 10; // Max 10 parallel checks to prevent STB CPU overload & Webshare rate limits
+  let cursor = 0;
+  const results: any[] = [];
+
+  async function worker() {
+    while (cursor < proxies.length) {
+      const idx = cursor++;
+      const proxy = proxies[idx];
+      if (!proxy) break;
+
       const result = await checkProxyHealth(proxy.url);
       await db
         .update(proxyPool)
@@ -122,14 +134,18 @@ proxyPoolRouter.post("/pool/check-all", async (c) => {
           updatedAt: new Date(),
         })
         .where(eq(proxyPool.id, proxy.id));
-      return { id: proxy.id, url: proxy.url, ...result };
-    })
-  );
+
+      results.push({ id: proxy.id, url: proxy.url, ...result });
+    }
+  }
+
+  const workers = Array.from({ length: Math.min(concurrency, proxies.length) }, worker);
+  await Promise.all(workers);
 
   invalidateProxyCache();
   return c.json({
-    checked: results.length,
-    results: results.map((r) => (r.status === "fulfilled" ? r.value : { error: "check failed" })),
+    checked: proxies.length,
+    results,
   });
 });
 

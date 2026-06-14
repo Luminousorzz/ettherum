@@ -212,6 +212,18 @@ export const tempMailMessages = sqliteTable("temp_mail_messages", {
   index("temp_mail_messages_created_at_idx").on(table.createdAt),
 ]);
 
+export const customServices = sqliteTable("custom_services", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  name: text("name").notNull().unique(),
+  description: text("description"),
+  cwd: text("cwd").notNull(),
+  command: text("command").notNull(),
+  envVars: text("env_vars"), // JSON string of env key-values
+  status: text("status").notNull().default("stopped"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
+});
+
 // Type exports
 export type Account = typeof accounts.$inferSelect;
 export type NewAccount = typeof accounts.$inferInsert;
@@ -240,3 +252,5 @@ export type TempMailAddress = typeof tempMailAddresses.$inferSelect;
 export type NewTempMailAddress = typeof tempMailAddresses.$inferInsert;
 export type TempMailMessage = typeof tempMailMessages.$inferSelect;
 export type NewTempMailMessage = typeof tempMailMessages.$inferInsert;
+export type CustomService = typeof customServices.$inferSelect;
+export type NewCustomService = typeof customServices.$inferInsert;

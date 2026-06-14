@@ -29,6 +29,7 @@ import MemoryStorage from "./pages/server/MemoryStorage";
 import NetworkConnection from "./pages/server/NetworkConnection";
 import ServicesManagement from "./pages/server/ServicesManagement";
 import SystemSecurity from "./pages/server/SystemSecurity";
+import AppStore from "./pages/server/AppStore";
 
 function RouteFallback() {
   return <div className="flex h-64 items-center justify-center text-sm text-[var(--muted-foreground)]">Loading...</div>;
@@ -99,6 +100,7 @@ export default function App() {
           <Route path="/server/network" element={<NetworkConnection />} />
           <Route path="/server/services" element={<ServicesManagement />} />
           <Route path="/server/system-security" element={<SystemSecurity />} />
+          <Route path="/server/apps" element={<AppStore />} />
         </Route>
       </Routes>
     </Suspense>

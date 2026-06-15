@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/dialog";
 import { Plus, Upload, RefreshCw, Play, RotateCcw, Flame, ChevronDown, Loader2, Laptop, Download } from "lucide-react";
 import ActiveAutomationPanel from "@/components/ActiveAutomationPanel";
+import BulkAccountAutomationModal from "@/components/BulkAccountAutomationModal";
 import { Progress } from "@/components/ui/progress";
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "@/components/ui/tooltip";
 import { useWsEvent } from "@/hooks/useWebSocket";
@@ -116,6 +117,8 @@ export default function Accounts() {
   const [loginPendingDialog, setLoginPendingDialog] = useState(false);
   const [loginPendingConcurrency, setLoginPendingConcurrency] = useState(2);
   const [byokProviders, setByokProviders] = useState<ByokProvider[]>([]);
+  const [bulkAutomationOpen, setBulkAutomationOpen] = useState(false);
+  const [bulkAutomationProvider, setBulkAutomationProvider] = useState<Provider | null>(null);
   const [byokDialogOpen, setByokDialogOpen] = useState(false);
   const [byokEditId, setByokEditId] = useState<number | null>(null);
   const [byokForm, setByokForm] = useState({
@@ -545,9 +548,7 @@ export default function Accounts() {
 
   function handleOpenAddDialog(provider: Provider) {
     resetCodexOAuthFlow();
-    if (provider === "codex") {
-      setAddMode("pat");
-    } else if (provider === "outlook") {
+    if (provider === "outlook") {
       setAddMode("single");
       const creds = generateOutlookCredentials();
       setAddForm({
@@ -557,10 +558,21 @@ export default function Accounts() {
         browserEngine: "camoufox",
         headless: true
       });
+      setAddDialogProvider(provider);
+    } else if (provider === "kiro-pro") {
+      setAddMode("instant");
+      setAddDialogProvider(provider);
+    } else if (provider === "qoder") {
+      setAddMode("pat");
+      setAddDialogProvider(provider);
+    } else if (provider === "codex") {
+      setAddMode("pat");
+      setAddDialogProvider(provider);
     } else {
-      setAddMode("bulk");
+      // For kiro, codebuddy, canva, open bulk automation modal directly
+      setBulkAutomationProvider(provider);
+      setBulkAutomationOpen(true);
     }
-    setAddDialogProvider(provider);
   }
 
   function handleCloseAddDialog() {
@@ -806,7 +818,8 @@ export default function Accounts() {
         </div>
       )}
 
-
+      {/* Active Automation Progress Tracker */}
+      <ActiveAutomationPanel />
 
       {/* Provider cards */}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
@@ -1241,7 +1254,14 @@ export default function Accounts() {
               {addDialogProvider === "codex" && <button onClick={() => handleSetCodexMode("pat")}
                 className={`flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors ${addMode === "pat" ? "bg-[var(--background)] text-[var(--foreground)] shadow-sm" : "text-[var(--muted-foreground)]"}`}
               >OAuth Login</button>}
-              <button onClick={() => addDialogProvider === "codex" ? handleSetCodexMode("bulk") : setAddMode("bulk")}
+              <button onClick={() => {
+                const prov = addDialogProvider;
+                setAddDialogProvider(null);
+                if (prov) {
+                  setBulkAutomationProvider(prov);
+                  setBulkAutomationOpen(true);
+                }
+              }}
                 className={`flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors ${addMode === "bulk" ? "bg-[var(--background)] text-[var(--foreground)] shadow-sm" : "text-[var(--muted-foreground)]"}`}
               >Bulk (Email|Pass)</button>
               <button onClick={() => addDialogProvider === "codex" ? handleSetCodexMode("single") : setAddMode("single")}
@@ -1253,7 +1273,14 @@ export default function Accounts() {
               <button onClick={() => setAddMode("pat")}
                 className={`flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors ${addMode === "pat" ? "bg-[var(--background)] text-[var(--foreground)] shadow-sm" : "text-[var(--muted-foreground)]"}`}
               >PAT (Token)</button>
-              <button onClick={() => setAddMode("bulk")}
+              <button onClick={() => {
+                const prov = addDialogProvider;
+                setAddDialogProvider(null);
+                if (prov) {
+                  setBulkAutomationProvider(prov);
+                  setBulkAutomationOpen(true);
+                }
+              }}
                 className={`flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors ${addMode === "bulk" ? "bg-[var(--background)] text-[var(--foreground)] shadow-sm" : "text-[var(--muted-foreground)]"}`}
               >Bulk (Email|Pass)</button>
               <button onClick={() => setAddMode("single")}
@@ -1264,7 +1291,14 @@ export default function Accounts() {
             null /* No mode tabs for outlook */
           ) : (
             <div className="flex gap-1 rounded-md bg-[var(--secondary)] p-1">
-              <button onClick={() => setAddMode("bulk")}
+              <button onClick={() => {
+                const prov = addDialogProvider;
+                setAddDialogProvider(null);
+                if (prov) {
+                  setBulkAutomationProvider(prov);
+                  setBulkAutomationOpen(true);
+                }
+              }}
                 className={`flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors ${addMode === "bulk" ? "bg-[var(--background)] text-[var(--foreground)] shadow-sm" : "text-[var(--muted-foreground)]"}`}
               >Bulk (Email|Pass)</button>
               <button onClick={() => setAddMode("single")}
@@ -1477,6 +1511,16 @@ export default function Accounts() {
           )}
         </DialogContent>
       </Dialog>
+
+      {bulkAutomationProvider && (
+        <BulkAccountAutomationModal
+          isOpen={bulkAutomationOpen}
+          onClose={() => setBulkAutomationOpen(false)}
+          provider={bulkAutomationProvider}
+          serviceName={labelProvider(bulkAutomationProvider)}
+          onSuccess={load}
+        />
+      )}
     </div>
   );
 }

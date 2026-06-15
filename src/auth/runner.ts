@@ -486,11 +486,11 @@ export async function loginAccount(account: Account, options: LoginOptions = {})
     }
   }
 
-  // If running on Linux (STB) and agent is NOT connected, do not run locally
-  if (process.platform === "linux") {
-    const errorMsg = "Agent is offline. Playwright automation is disabled on STB. Please run the Etteum Local Agent on your PC.";
+  // Enforce agent execution on non-Windows (STB/Linux) hosts to prevent OOM
+  if (!isAgentConnected() && process.platform !== "win32") {
+    const errorMsg = "No Windows Runner Agent connected. On STB/Linux devices, browser automation must run on your local PC via the Windows Agent to prevent Out-Of-Memory crashes.";
     await markAccountError(account.id, errorMsg);
-    const log = addAuthLog({
+    const errLog = addAuthLog({
       type: "login_failed",
       accountId: account.id,
       email: account.email,
@@ -500,9 +500,9 @@ export async function loginAccount(account: Account, options: LoginOptions = {})
     });
     broadcast({
       type: "login_failed",
-      data: { logId: log.id, id: account.id, email: account.email, provider, error: errorMsg },
+      data: { logId: errLog.id, id: account.id, email: account.email, provider, error: errorMsg },
     });
-    return { success: false, error: errorMsg, noRetry: true };
+    return { success: false, error: errorMsg };
   }
 
   const streamedEvents: ScriptEvent[] = [];

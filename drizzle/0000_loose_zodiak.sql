@@ -1,4 +1,4 @@
-CREATE TABLE `accounts` (
+CREATE TABLE IF NOT EXISTS `accounts` (
 	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
 	`provider` text NOT NULL,
 	`email` text NOT NULL,
@@ -17,8 +17,8 @@ CREATE TABLE `accounts` (
 	`updated_at` integer
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `accounts_provider_email_idx` ON `accounts` (`provider`,`email`);--> statement-breakpoint
-CREATE TABLE `custom_services` (
+CREATE UNIQUE INDEX IF NOT EXISTS `accounts_provider_email_idx` ON `accounts` (`provider`,`email`);--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS `custom_services` (
 	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
 	`name` text NOT NULL,
 	`description` text,
@@ -30,8 +30,8 @@ CREATE TABLE `custom_services` (
 	`updated_at` integer
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `custom_services_name_unique` ON `custom_services` (`name`);--> statement-breakpoint
-CREATE TABLE `filter_rules` (
+CREATE UNIQUE INDEX IF NOT EXISTS `custom_services_name_unique` ON `custom_services` (`name`);--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS `filter_rules` (
 	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
 	`rule_id` text NOT NULL,
 	`pattern` text NOT NULL,
@@ -43,9 +43,9 @@ CREATE TABLE `filter_rules` (
 	`updated_at` integer
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `filter_rules_rule_id_unique` ON `filter_rules` (`rule_id`);--> statement-breakpoint
-CREATE INDEX `filter_rules_sort_order_idx` ON `filter_rules` (`sort_order`);--> statement-breakpoint
-CREATE TABLE `image_studio_chats` (
+CREATE UNIQUE INDEX IF NOT EXISTS `filter_rules_rule_id_unique` ON `filter_rules` (`rule_id`);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS `filter_rules_sort_order_idx` ON `filter_rules` (`sort_order`);--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS `image_studio_chats` (
 	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
 	`title` text,
 	`messages` text NOT NULL,
@@ -56,8 +56,8 @@ CREATE TABLE `image_studio_chats` (
 	`updated_at` integer
 );
 --> statement-breakpoint
-CREATE INDEX `image_studio_chats_updated_at_idx` ON `image_studio_chats` (`updated_at`);--> statement-breakpoint
-CREATE TABLE `image_studio_results` (
+CREATE INDEX IF NOT EXISTS `image_studio_chats_updated_at_idx` ON `image_studio_chats` (`updated_at`);--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS `image_studio_results` (
 	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
 	`chat_id` integer,
 	`prompt` text NOT NULL,
@@ -70,9 +70,9 @@ CREATE TABLE `image_studio_results` (
 	FOREIGN KEY (`chat_id`) REFERENCES `image_studio_chats`(`id`) ON UPDATE no action ON DELETE set null
 );
 --> statement-breakpoint
-CREATE INDEX `image_studio_results_created_at_idx` ON `image_studio_results` (`created_at`);--> statement-breakpoint
-CREATE INDEX `image_studio_results_chat_idx` ON `image_studio_results` (`chat_id`);--> statement-breakpoint
-CREATE TABLE `model_mappings` (
+CREATE INDEX IF NOT EXISTS `image_studio_results_created_at_idx` ON `image_studio_results` (`created_at`);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS `image_studio_results_chat_idx` ON `image_studio_results` (`chat_id`);--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS `model_mappings` (
 	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
 	`source_pattern` text NOT NULL,
 	`match_type` text DEFAULT 'contains' NOT NULL,
@@ -84,8 +84,8 @@ CREATE TABLE `model_mappings` (
 	`updated_at` integer
 );
 --> statement-breakpoint
-CREATE INDEX `model_mappings_priority_idx` ON `model_mappings` (`priority`);--> statement-breakpoint
-CREATE TABLE `proxy_pool` (
+CREATE INDEX IF NOT EXISTS `model_mappings_priority_idx` ON `model_mappings` (`priority`);--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS `proxy_pool` (
 	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
 	`url` text NOT NULL,
 	`type` text DEFAULT 'http' NOT NULL,
@@ -101,8 +101,8 @@ CREATE TABLE `proxy_pool` (
 	`updated_at` integer
 );
 --> statement-breakpoint
-CREATE INDEX `proxy_pool_status_idx` ON `proxy_pool` (`status`);--> statement-breakpoint
-CREATE TABLE `request_logs` (
+CREATE INDEX IF NOT EXISTS `proxy_pool_status_idx` ON `proxy_pool` (`status`);--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS `request_logs` (
 	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
 	`account_id` integer,
 	`provider` text NOT NULL,
@@ -123,18 +123,18 @@ CREATE TABLE `request_logs` (
 	FOREIGN KEY (`account_id`) REFERENCES `accounts`(`id`) ON UPDATE no action ON DELETE no action
 );
 --> statement-breakpoint
-CREATE INDEX `request_logs_created_at_idx` ON `request_logs` (`created_at`);--> statement-breakpoint
-CREATE INDEX `request_logs_status_created_at_idx` ON `request_logs` (`status`,`created_at`);--> statement-breakpoint
-CREATE INDEX `request_logs_provider_created_at_idx` ON `request_logs` (`provider`,`created_at`);--> statement-breakpoint
-CREATE INDEX `request_logs_provider_model_status_idx` ON `request_logs` (`provider`,`model`,`status`);--> statement-breakpoint
-CREATE INDEX `request_logs_account_idx` ON `request_logs` (`account_id`);--> statement-breakpoint
-CREATE TABLE `settings` (
+CREATE INDEX IF NOT EXISTS `request_logs_created_at_idx` ON `request_logs` (`created_at`);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS `request_logs_status_created_at_idx` ON `request_logs` (`status`,`created_at`);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS `request_logs_provider_created_at_idx` ON `request_logs` (`provider`,`created_at`);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS `request_logs_provider_model_status_idx` ON `request_logs` (`provider`,`model`,`status`);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS `request_logs_account_idx` ON `request_logs` (`account_id`);--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS `settings` (
 	`key` text PRIMARY KEY NOT NULL,
 	`value` text,
 	`updated_at` integer
 );
 --> statement-breakpoint
-CREATE TABLE `temp_mail_addresses` (
+CREATE TABLE IF NOT EXISTS `temp_mail_addresses` (
 	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
 	`domain_id` integer NOT NULL,
 	`address` text NOT NULL,
@@ -143,15 +143,15 @@ CREATE TABLE `temp_mail_addresses` (
 	FOREIGN KEY (`domain_id`) REFERENCES `temp_mail_domains`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `temp_mail_addresses_address_unique` ON `temp_mail_addresses` (`address`);--> statement-breakpoint
-CREATE TABLE `temp_mail_domains` (
+CREATE UNIQUE INDEX IF NOT EXISTS `temp_mail_addresses_address_unique` ON `temp_mail_addresses` (`address`);--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS `temp_mail_domains` (
 	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
 	`domain` text NOT NULL,
 	`created_at` integer NOT NULL
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `temp_mail_domains_domain_unique` ON `temp_mail_domains` (`domain`);--> statement-breakpoint
-CREATE TABLE `temp_mail_messages` (
+CREATE UNIQUE INDEX IF NOT EXISTS `temp_mail_domains_domain_unique` ON `temp_mail_domains` (`domain`);--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS `temp_mail_messages` (
 	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
 	`address_id` integer NOT NULL,
 	`sender` text NOT NULL,
@@ -164,9 +164,9 @@ CREATE TABLE `temp_mail_messages` (
 	FOREIGN KEY (`address_id`) REFERENCES `temp_mail_addresses`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
-CREATE INDEX `temp_mail_messages_address_idx` ON `temp_mail_messages` (`address_id`);--> statement-breakpoint
-CREATE INDEX `temp_mail_messages_created_at_idx` ON `temp_mail_messages` (`created_at`);--> statement-breakpoint
-CREATE TABLE `usage_summary` (
+CREATE INDEX IF NOT EXISTS `temp_mail_messages_address_idx` ON `temp_mail_messages` (`address_id`);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS `temp_mail_messages_created_at_idx` ON `temp_mail_messages` (`created_at`);--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS `usage_summary` (
 	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
 	`bucket` text NOT NULL,
 	`provider` text NOT NULL,
@@ -181,10 +181,10 @@ CREATE TABLE `usage_summary` (
 	`total_duration_ms` integer DEFAULT 0
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `usage_summary_bucket_provider_model_idx` ON `usage_summary` (`bucket`,`provider`,`model`);--> statement-breakpoint
-CREATE INDEX `usage_summary_bucket_idx` ON `usage_summary` (`bucket`);--> statement-breakpoint
-CREATE INDEX `usage_summary_provider_idx` ON `usage_summary` (`provider`,`bucket`);--> statement-breakpoint
-CREATE TABLE `vcc_cards` (
+CREATE UNIQUE INDEX IF NOT EXISTS `usage_summary_bucket_provider_model_idx` ON `usage_summary` (`bucket`,`provider`,`model`);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS `usage_summary_bucket_idx` ON `usage_summary` (`bucket`);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS `usage_summary_provider_idx` ON `usage_summary` (`provider`,`bucket`);--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS `vcc_cards` (
 	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
 	`number` text NOT NULL,
 	`exp_month` text NOT NULL,
@@ -198,8 +198,8 @@ CREATE TABLE `vcc_cards` (
 	FOREIGN KEY (`used_by_account_id`) REFERENCES `accounts`(`id`) ON UPDATE no action ON DELETE no action
 );
 --> statement-breakpoint
-CREATE INDEX `vcc_cards_status_idx` ON `vcc_cards` (`status`);--> statement-breakpoint
-CREATE TABLE `vcc_transactions` (
+CREATE INDEX IF NOT EXISTS `vcc_cards_status_idx` ON `vcc_cards` (`status`);--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS `vcc_transactions` (
 	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
 	`account_id` integer,
 	`card_last4` text NOT NULL,
@@ -212,5 +212,5 @@ CREATE TABLE `vcc_transactions` (
 	FOREIGN KEY (`account_id`) REFERENCES `accounts`(`id`) ON UPDATE no action ON DELETE no action
 );
 --> statement-breakpoint
-CREATE INDEX `vcc_transactions_account_idx` ON `vcc_transactions` (`account_id`);--> statement-breakpoint
-CREATE INDEX `vcc_transactions_status_idx` ON `vcc_transactions` (`status`);
+CREATE INDEX IF NOT EXISTS `vcc_transactions_account_idx` ON `vcc_transactions` (`account_id`);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS `vcc_transactions_status_idx` ON `vcc_transactions` (`status`);

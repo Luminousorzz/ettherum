@@ -701,3 +701,187 @@ systemRouter.post("/webhook-deploy", async (c) => {
   return c.json({ success: true, message: "Deploy triggered successfully" });
 });
 
+// Helper: Parse Git remote URL into owner and repository name
+function parseGitRemote(url: string): { owner: string; repo: string } | null {
+  if (!url) return null;
+  const match = url.match(/github\.com[\/:]([^\/]+)\/([^\/\s\.]+)/);
+  if (match) {
+    const owner = match[1];
+    let repo = match[2];
+    if (repo.endsWith(".git")) {
+      repo = repo.slice(0, -4);
+    }
+    return { owner, repo };
+  }
+  return null;
+}
+
+/**
+ * POST /api/system/github-connect
+ * Connects a GitHub Personal Access Token (PAT), updates git remote URL to allow
+ * pulling from private repos, and automatically registers a webhook on GitHub.
+ */
+systemRouter.post("/github-connect", async (c) => {
+  const { token } = await c.req.json<{ token: string }>();
+
+  if (!token || token.trim() === "") {
+    return c.json({ error: "GitHub Access Token is required" }, 400);
+  }
+
+  // 1. Get current Git remote URL
+  let remoteUrl = "";
+  try {
+    remoteUrl = execSync("git remote get-url origin", { stdio: "pipe" }).toString().trim();
+  } catch (err: any) {
+    return c.json({ error: `Failed to detect Git remote URL: ${err.message}` }, 500);
+  }
+
+  const gitInfo = parseGitRemote(remoteUrl);
+  if (!gitInfo) {
+    return c.json({ error: `Could not parse GitHub owner and repository from remote URL: ${remoteUrl}` }, 400);
+  }
+
+  const { owner, repo } = gitInfo;
+
+  // 2. Set remote URL to include token (handles private repos on git pull)
+  try {
+    const newTokenUrl = `https://${token.trim()}@github.com/${owner}/${repo}.git`;
+    execSync(`git remote set-url origin ${newTokenUrl}`, { stdio: "pipe" });
+  } catch (err: any) {
+    return c.json({ error: `Failed to update Git remote URL: ${err.message}` }, 500);
+  }
+
+  // 3. Save github_pat to database settings
+  const existingPat = await db.select().from(settings).where(eq(settings.key, "github_pat"));
+  if (existingPat.length > 0) {
+    await db.update(settings).set({ value: token.trim(), updatedAt: new Date() }).where(eq(settings.key, "github_pat"));
+  } else {
+    await db.insert(settings).values({ key: "github_pat", value: token.trim() });
+  }
+
+  // 4. Generate or read webhook secret
+  let secret = "";
+  const existingSecret = await db.select().from(settings).where(eq(settings.key, "github_webhook_secret"));
+  if (existingSecret.length > 0 && existingSecret[0].value) {
+    secret = existingSecret[0].value;
+  } else {
+    secret = crypto.randomBytes(20).toString("hex");
+    if (existingSecret.length > 0) {
+      await db.update(settings).set({ value: secret, updatedAt: new Date() }).where(eq(settings.key, "github_webhook_secret"));
+    } else {
+      await db.insert(settings).values({ key: "github_webhook_secret", value: secret });
+    }
+  }
+
+  // 5. Try to find the public webhook URL from Cloudflare Ingress Rules (port 1931 or 1930)
+  let publicWebhookUrl = "";
+  try {
+    const rules = await db.select().from(tunnelIngressRules);
+    // Find a rule that maps to local port 1931 (Etteum dashboard) or 1930 (Hono core)
+    const matchRule = rules.find(r => r.service.includes(":1931") || r.service.includes(":1930"));
+    if (matchRule) {
+      publicWebhookUrl = `https://${matchRule.hostname}/api/system/webhook-deploy`;
+    }
+  } catch {}
+
+  let webhookStatus = "unknown";
+  let webhookMessage = "";
+
+  // 6. Automatically register Webhook on GitHub API if we have a public URL
+  if (publicWebhookUrl) {
+    try {
+      // Check existing hooks to prevent duplicates
+      const listRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/hooks`, {
+        headers: {
+          Authorization: `token ${token.trim()}`,
+          Accept: "application/vnd.github.v3+json",
+          "User-Agent": "Etteum-Server"
+        }
+      });
+      const listJson = await listRes.json() as any;
+
+      let existingHookId = null;
+      if (Array.isArray(listJson)) {
+        const matchingHook = listJson.find(h => h.config && h.config.url === publicWebhookUrl);
+        if (matchingHook) {
+          existingHookId = matchingHook.id;
+        }
+      }
+
+      if (existingHookId) {
+        // Update existing hook
+        const updateRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/hooks/${existingHookId}`, {
+          method: "PATCH",
+          headers: {
+            Authorization: `token ${token.trim()}`,
+            Accept: "application/vnd.github.v3+json",
+            "Content-Type": "application/json",
+            "User-Agent": "Etteum-Server"
+          },
+          body: JSON.stringify({
+            active: true,
+            events: ["push"],
+            config: {
+              url: publicWebhookUrl,
+              content_type: "json",
+              secret: secret
+            }
+          })
+        });
+        const updateJson = await updateRes.json() as any;
+        if (updateJson.id) {
+          webhookStatus = "updated";
+          webhookMessage = `Existing webhook updated at: ${publicWebhookUrl}`;
+        } else {
+          webhookStatus = "failed";
+          webhookMessage = updateJson.message || "Failed to update existing webhook";
+        }
+      } else {
+        // Create new hook
+        const createRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/hooks`, {
+          method: "POST",
+          headers: {
+            Authorization: `token ${token.trim()}`,
+            Accept: "application/vnd.github.v3+json",
+            "Content-Type": "application/json",
+            "User-Agent": "Etteum-Server"
+          },
+          body: JSON.stringify({
+            name: "web",
+            active: true,
+            events: ["push"],
+            config: {
+              url: publicWebhookUrl,
+              content_type: "json",
+              secret: secret
+            }
+          })
+        });
+        const createJson = await createRes.json() as any;
+        if (createJson.id) {
+          webhookStatus = "created";
+          webhookMessage = `Webhook automatically created at: ${publicWebhookUrl}`;
+        } else {
+          webhookStatus = "failed";
+          webhookMessage = createJson.message || "Failed to create new webhook";
+        }
+      }
+    } catch (err: any) {
+      webhookStatus = "failed";
+      webhookMessage = `Failed to contact GitHub API: ${err.message}`;
+    }
+  } else {
+    webhookStatus = "skipped";
+    webhookMessage = "No public Cloudflare Tunnel rule found mapping to dashboard port 1931. Please set up a tunnel rule first, then click Connect.";
+  }
+
+  return c.json({
+    success: true,
+    owner,
+    repo,
+    webhookStatus,
+    webhookMessage,
+    publicWebhookUrl,
+  });
+});
+

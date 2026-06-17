@@ -2,12 +2,13 @@ import { useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Save, RefreshCw, Zap, Flame, Globe, Cloud } from "lucide-react";
+import { Save, RefreshCw, Zap, Flame, Globe, Cloud, ExternalLink, Loader2 } from "lucide-react";
 import {
   fetchSettings,
   updateSettings,
   fetchProviderList,
   fetchAutoWarmupStatus,
+  fetchApi,
   type AutoWarmupStatus,
 } from "@/lib/api";
 import { useApi } from "@/hooks/useApi";
@@ -49,11 +50,53 @@ export default function Settings() {
     [providerListApi.data]
   );
 
+  const [githubPat, setGithubPat] = useState("");
+  const [connectingGithub, setConnectingGithub] = useState(false);
+  const [githubStatus, setGithubStatus] = useState<{ success: boolean; owner: string; repo: string; message: string } | null>(null);
+
   async function load() {
     const res = (await fetchSettings()) as { data: Record<string, string> };
     setForm((current) => ({ ...current, ...(res.data || {}) }));
+    setGithubPat(res.data?.github_pat || "");
     setDirty(false);
     fetchAutoWarmupStatus().then(setWarmupStatus).catch(() => {});
+  }
+
+  async function handleConnectGithub() {
+    if (!githubPat) return;
+    setConnectingGithub(true);
+    setGithubStatus(null);
+    try {
+      const res = await fetchApi("/api/system/github-connect", {
+        method: "POST",
+        body: JSON.stringify({ token: githubPat })
+      });
+      if (res.success) {
+        setGithubStatus({
+          success: true,
+          owner: res.owner,
+          repo: res.repo,
+          message: res.webhookMessage || "GitHub connected and remote URL updated successfully."
+        });
+        load();
+      } else {
+        setGithubStatus({
+          success: false,
+          owner: "",
+          repo: "",
+          message: res.error || "Failed to connect to GitHub"
+        });
+      }
+    } catch (err: any) {
+      setGithubStatus({
+        success: false,
+        owner: "",
+        repo: "",
+        message: err.message || "An error occurred while connecting."
+      });
+    } finally {
+      setConnectingGithub(false);
+    }
   }
 
   useEffect(() => {
@@ -333,26 +376,65 @@ export default function Settings() {
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">
               <Cloud className="w-4 h-4 text-[var(--primary)]" />
-              GitHub Auto-Deploy Webhook
+              GitHub Auto-Deploy Webhook & CI/CD
             </CardTitle>
             <CardDescription>
-              Configure secure webhook payload verification for continuous self-deployment
+              Connect your GitHub repository to enable automatic updates, supporting both public and private repositories.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
+            {/* GitHub PAT Connect Flow */}
+            <div className="rounded-lg border border-[var(--border)] bg-[var(--secondary)]/40 p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <label className="text-sm font-medium text-[var(--foreground)]">
+                  GitHub Personal Access Token (PAT)
+                </label>
+                <a
+                  href="https://github.com/settings/tokens/new?scopes=repo,admin:repo_hook&description=Etteum%20Auto-Updater"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs text-[var(--primary)] hover:underline flex items-center gap-1"
+                >
+                  Create PAT with correct scopes <ExternalLink className="w-3 h-3" />
+                </a>
+              </div>
+              <div className="flex gap-2">
+                <Input
+                  type="password"
+                  value={githubPat}
+                  onChange={(e) => setGithubPat(e.target.value)}
+                  placeholder="ghp_..."
+                  className="h-9 text-sm bg-[var(--background)] border-[var(--border)] flex-1 focus:border-[var(--primary)]"
+                />
+                <Button
+                  onClick={handleConnectGithub}
+                  disabled={connectingGithub || !githubPat}
+                  className="text-xs h-9 bg-[var(--primary)] text-white hover:bg-[var(--primary)]/90 px-3 shrink-0"
+                >
+                  {connectingGithub ? <Loader2 className="w-4 h-4 animate-spin" /> : "Connect & Auto-Hook"}
+                </Button>
+              </div>
+              {githubStatus && (
+                <div className={`p-3 rounded-lg border text-xs ${githubStatus.success ? "bg-[var(--success)]/10 border-[var(--success)]/20 text-[var(--success)]" : "bg-[var(--destructive)]/10 border-[var(--destructive)]/20 text-[var(--destructive)]"}`}>
+                  <div className="font-bold">{githubStatus.success ? `Connected to ${githubStatus.owner}/${githubStatus.repo}` : "Connection Failed"}</div>
+                  <div className="mt-1 font-mono text-xxs break-all">{githubStatus.message}</div>
+                </div>
+              )}
+            </div>
+
             <div className="rounded-lg border border-[var(--border)] bg-[var(--secondary)]/40 p-4 space-y-2">
               <label className="text-sm font-medium text-[var(--foreground)]">
-                Webhook Secret Key
+                Webhook Secret Key (Auto-Generated)
               </label>
               <Input
                 type="password"
                 value={form.github_webhook_secret || ""}
                 onChange={(e) => setValue("github_webhook_secret", e.target.value)}
-                placeholder="Enter a secret password"
+                placeholder="Webhook secret key"
                 className="h-9 text-sm bg-[var(--background)] border-[var(--border)] focus:border-[var(--primary)]"
               />
               <p className="text-xs text-[var(--muted-foreground)]">
-                If configured, GitHub webhook triggers must sign payloads with this secret. Register the webhook URL on GitHub: <code className="font-mono text-xxs bg-[var(--secondary)] p-1 rounded">https://&lt;your-domain&gt;/api/system/webhook-deploy</code>
+                This secret is automatically used by the system to verify payload signatures. URL: <code className="font-mono text-xxs bg-[var(--secondary)] p-1 rounded">/api/system/webhook-deploy</code>
               </p>
             </div>
           </CardContent>

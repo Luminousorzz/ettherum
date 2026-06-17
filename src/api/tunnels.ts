@@ -157,6 +157,138 @@ async function deleteTunnelConfigsAndService(tunnelId: string) {
   }
 }
 
+// Helper: Sync existing CNAME DNS records from Cloudflare for an imported tunnel
+async function syncIngressRulesFromDns(apiToken: string, tunnelId: string) {
+  try {
+    const zonesRes = await fetch(`https://api.cloudflare.com/client/v4/zones?per_page=50`, {
+      headers: { Authorization: `Bearer ${apiToken}` }
+    });
+    const zonesJson = await zonesRes.json() as any;
+    if (!zonesJson.success) return;
+    const zones = zonesJson.result || [];
+
+    for (const z of zones) {
+      const dnsRes = await fetch(`https://api.cloudflare.com/client/v4/zones/${z.id}/dns_records?type=CNAME&content=${tunnelId}.cfargotunnel.com`, {
+        headers: { Authorization: `Bearer ${apiToken}` }
+      });
+      const dnsJson = await dnsRes.json() as any;
+      if (!dnsJson.success) continue;
+      const records = dnsJson.result || [];
+
+      for (const r of records) {
+        const [existingRule] = await db
+          .select()
+          .from(tunnelIngressRules)
+          .where(and(eq(tunnelIngressRules.tunnelId, tunnelId), eq(tunnelIngressRules.hostname, r.name)));
+
+        if (!existingRule) {
+          // Insert local rule with safe default mapping (Etteum dashboard port 1931)
+          await db.insert(tunnelIngressRules).values({
+            tunnelId,
+            hostname: r.name,
+            service: "http://localhost:1931",
+            dnsRecordId: r.id
+          });
+
+          // Re-generate configuration files to include this imported rule
+          const [tunnel] = await db.select().from(cloudflareTunnels).where(eq(cloudflareTunnels.id, tunnelId));
+          if (tunnel) {
+            const creds = JSON.parse(tunnel.credentials);
+            const allRules = await db.select().from(tunnelIngressRules).where(eq(tunnelIngressRules.tunnelId, tunnelId));
+            await writeTunnelConfigs(tunnelId, creds.AccountTag, creds.TunnelSecret, allRules);
+          }
+        } else if (!existingRule.dnsRecordId) {
+          await db
+            .update(tunnelIngressRules)
+            .set({ dnsRecordId: r.id })
+            .where(eq(tunnelIngressRules.id, existingRule.id));
+        }
+      }
+    }
+  } catch (err: any) {
+    console.error(`Failed to sync DNS records for tunnel ${tunnelId}:`, err.message);
+  }
+}
+
+// Helper: Sync all tunnels with Cloudflare account
+async function syncTunnelsWithCloudflare(apiToken: string, accountId: string) {
+  if (!apiToken || !accountId || apiToken === "mock_token") return;
+
+  try {
+    const res = await fetch(`https://api.cloudflare.com/client/v4/accounts/${accountId}/cfd_tunnel?is_deleted=false`, {
+      headers: { Authorization: `Bearer ${apiToken}` }
+    });
+    const json = await res.json() as any;
+    if (!json.success) {
+      console.error("Failed to fetch tunnels from Cloudflare during sync:", json.errors?.[0]?.message);
+      return;
+    }
+
+    const cfTunnels = json.result || [];
+    const cfTunnelIds = new Set(cfTunnels.map((t: any) => t.id));
+
+    // 1. Delete local tunnels that no longer exist on Cloudflare
+    const localTunnels = await db.select().from(cloudflareTunnels);
+    for (const lt of localTunnels) {
+      if (!cfTunnelIds.has(lt.id)) {
+        await deleteTunnelConfigsAndService(lt.id);
+        await db.delete(cloudflareTunnels).where(eq(cloudflareTunnels.id, lt.id));
+      }
+    }
+
+    // 2. Import or update tunnels from Cloudflare
+    for (const cfT of cfTunnels) {
+      const existingLocal = localTunnels.find((lt) => lt.id === cfT.id);
+      if (!existingLocal) {
+        try {
+          // Fetch token from Cloudflare API
+          const tokenRes = await fetch(`https://api.cloudflare.com/client/v4/accounts/${accountId}/cfd_tunnel/${cfT.id}/token`, {
+            headers: { Authorization: `Bearer ${apiToken}` }
+          });
+          const tokenJson = await tokenRes.json() as any;
+          if (tokenJson.success && tokenJson.result) {
+            const tokenBase64 = tokenJson.result;
+            const decoded = Buffer.from(tokenBase64, "base64").toString("utf8");
+            const tokenObj = JSON.parse(decoded);
+            const secret = tokenObj.s;
+
+            const credsJson = JSON.stringify({
+              AccountTag: accountId,
+              TunnelSecret: secret,
+              TunnelID: cfT.id,
+            });
+
+            // Insert into local DB
+            await db.insert(cloudflareTunnels).values({
+              id: cfT.id,
+              name: cfT.name,
+              credentials: credsJson,
+              status: "inactive",
+            });
+
+            // Write local credentials and configuration files
+            await writeTunnelConfigs(cfT.id, accountId, secret, []);
+            writeSystemServiceFile(cfT.id);
+
+            // Sync CNAME DNS records for this imported tunnel
+            await syncIngressRulesFromDns(apiToken, cfT.id);
+          }
+        } catch (err: any) {
+          console.error(`Failed to import tunnel ${cfT.name} token:`, err.message);
+        }
+      } else {
+        if (existingLocal.name !== cfT.name) {
+          await db.update(cloudflareTunnels).set({ name: cfT.name }).where(eq(cloudflareTunnels.id, cfT.id));
+        }
+        // Sync rules for existing tunnel
+        await syncIngressRulesFromDns(apiToken, cfT.id);
+      }
+    }
+  } catch (err: any) {
+    console.error("Error in syncTunnelsWithCloudflare:", err.message);
+  }
+}
+
 /**
  * GET /api/tunnels/status
  * Check if cloudflared binary is installed and installation progress
@@ -222,6 +354,12 @@ tunnelsRouter.post("/install", async (c) => {
  */
 tunnelsRouter.get("/", async (c) => {
   const isLinux = process.platform === "linux";
+  const { apiToken, accountId } = await getCloudflareSettings();
+  
+  if (apiToken && accountId && apiToken !== "mock_token") {
+    await syncTunnelsWithCloudflare(apiToken, accountId);
+  }
+
   const list = await db.select().from(cloudflareTunnels);
   const data = [];
 

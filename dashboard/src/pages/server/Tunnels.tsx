@@ -418,18 +418,30 @@ export default function Tunnels() {
                   Daemon systemd services active on this host
                 </CardDescription>
               </div>
-              <Button
-                disabled={!status.installed || !apiToken || !accountId}
-                onClick={() => {
-                  setNewTunnelName("");
-                  setCreateError("");
-                  setShowCreateModal(true);
-                }}
-                className="text-xs h-8 px-3 flex items-center gap-1 bg-[var(--primary)] text-white hover:bg-[var(--primary)]/90"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                New Tunnel
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={loadingTunnels}
+                  onClick={loadTunnels}
+                  className="text-xs h-8 px-3 flex items-center gap-1 border-[var(--border)] bg-transparent text-[var(--foreground)] hover:bg-[var(--secondary)]/50"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${loadingTunnels ? "animate-spin" : ""}`} />
+                  Refresh
+                </Button>
+                <Button
+                  disabled={!status.installed || !apiToken || !accountId}
+                  onClick={() => {
+                    setNewTunnelName("");
+                    setCreateError("");
+                    setShowCreateModal(true);
+                  }}
+                  className="text-xs h-8 px-3 flex items-center gap-1 bg-[var(--primary)] text-white hover:bg-[var(--primary)]/90"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  New Tunnel
+                </Button>
+              </div>
             </CardHeader>
             <CardContent>
               {loadingTunnels ? (

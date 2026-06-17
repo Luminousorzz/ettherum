@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Save, RefreshCw, Zap, Flame, Globe } from "lucide-react";
+import { Save, RefreshCw, Zap, Flame, Globe, Cloud } from "lucide-react";
 import {
   fetchSettings,
   updateSettings,
@@ -324,6 +324,35 @@ export default function Settings() {
                 {form.proxy_pool_rotation === "sequential"
                   ? "Uses one proxy until it fails, then moves to the next in the list."
                   : "Distributes requests evenly across all active proxies in rotation."}
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+        {/* GitHub Auto-Deploy Webhook */}
+        <Card className="border-[var(--border)]">
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <Cloud className="w-4 h-4 text-[var(--primary)]" />
+              GitHub Auto-Deploy Webhook
+            </CardTitle>
+            <CardDescription>
+              Configure secure webhook payload verification for continuous self-deployment
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="rounded-lg border border-[var(--border)] bg-[var(--secondary)]/40 p-4 space-y-2">
+              <label className="text-sm font-medium text-[var(--foreground)]">
+                Webhook Secret Key
+              </label>
+              <Input
+                type="password"
+                value={form.github_webhook_secret || ""}
+                onChange={(e) => setValue("github_webhook_secret", e.target.value)}
+                placeholder="Enter a secret password"
+                className="h-9 text-sm bg-[var(--background)] border-[var(--border)] focus:border-[var(--primary)]"
+              />
+              <p className="text-xs text-[var(--muted-foreground)]">
+                If configured, GitHub webhook triggers must sign payloads with this secret. Register the webhook URL on GitHub: <code className="font-mono text-xxs bg-[var(--secondary)] p-1 rounded">https://&lt;your-domain&gt;/api/system/webhook-deploy</code>
               </p>
             </div>
           </CardContent>

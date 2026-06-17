@@ -1,7 +1,11 @@
 import { Hono } from "hono";
-import { execSync } from "child_process";
+import { execSync, spawn } from "child_process";
 import fs from "fs";
 import os from "os";
+import crypto from "crypto";
+import { db } from "../db/index";
+import { settings } from "../db/schema";
+import { eq } from "drizzle-orm";
 
 export const systemRouter = new Hono();
 
@@ -628,3 +632,72 @@ systemRouter.get("/analytics", async (c) => {
   // Return instantly from memory cache
   return c.json(systemCache);
 });
+
+/**
+ * POST /api/system/webhook-deploy
+ * Secure GitHub Webhook receiver to trigger automatic self-deployment/update
+ */
+systemRouter.post("/webhook-deploy", async (c) => {
+  const signatureHeader = c.req.header("x-hub-signature-256") || "";
+  const rawBody = await c.req.text();
+
+  // Read webhook secret from database settings
+  const [secretSetting] = await db
+    .select()
+    .from(settings)
+    .where(eq(settings.key, "github_webhook_secret"));
+  
+  const secret = secretSetting?.value || "";
+
+  if (secret) {
+    if (!signatureHeader) {
+      return c.json({ error: "Missing x-hub-signature-256 header" }, 401);
+    }
+    const parts = signatureHeader.split("=");
+    if (parts.length !== 2 || parts[0] !== "sha256") {
+      return c.json({ error: "Invalid signature format" }, 400);
+    }
+    const expected = parts[1];
+    const hmac = crypto.createHmac("sha256", secret);
+    const actual = hmac.update(rawBody).digest("hex");
+    
+    try {
+      const isMatch = crypto.timingSafeEqual(Buffer.from(expected, "hex"), Buffer.from(actual, "hex"));
+      if (!isMatch) {
+        return c.json({ error: "Signature mismatch" }, 401);
+      }
+    } catch {
+      return c.json({ error: "Signature verification failed" }, 401);
+    }
+  }
+
+  // Parse GitHub event payload
+  try {
+    const payload = JSON.parse(rawBody);
+    // Verify it is a push event to the main branch
+    if (payload.ref && payload.ref !== "refs/heads/main") {
+      return c.json({ message: `Skipping deploy for non-main branch: ${payload.ref}` });
+    }
+  } catch (e) {
+    console.warn("Webhook body is not valid JSON, continuing without branch validation");
+  }
+
+  const projectDir = process.cwd();
+  const isLinux = process.platform === "linux";
+
+  if (isLinux) {
+    // Run ./etteum update in a detached shell process after a 1.5 seconds delay
+    const script = `sleep 1.5 && cd ${projectDir} && ./etteum update`;
+    const child = spawn("nohup", ["bash", "-c", script], {
+      detached: true,
+      stdio: "ignore",
+      cwd: projectDir,
+    });
+    child.unref();
+  } else {
+    console.log("Mocking GitHub deploy webhook trigger on Windows.");
+  }
+
+  return c.json({ success: true, message: "Deploy triggered successfully" });
+});
+

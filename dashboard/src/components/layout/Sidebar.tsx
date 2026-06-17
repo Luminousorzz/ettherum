@@ -26,6 +26,7 @@ import {
   HardDrive,
   Shield,
   Grid,
+  Cloud,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useTheme } from "@/hooks/useTheme";
@@ -52,6 +53,7 @@ const navSections: NavSection[] = [
       { label: "Services & Docker", path: "/server/services", icon: Sliders },
       { label: "System & Security", path: "/server/system-security", icon: Shield },
       { label: "App Store & Manager", path: "/server/apps", icon: Grid },
+      { label: "Cloudflare Tunnels", path: "/server/tunnels", icon: Cloud },
     ],
   },
   {

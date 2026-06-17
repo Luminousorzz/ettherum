@@ -224,6 +224,24 @@ export const customServices = sqliteTable("custom_services", {
   updatedAt: integer("updated_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
 });
 
+export const cloudflareTunnels = sqliteTable("cloudflare_tunnels", {
+  id: text("id").primaryKey(),                      // Tunnel ID (UUID)
+  name: text("name").notNull().unique(),            // Nama Tunnel
+  credentials: text("credentials").notNull(),       // JSON string berisi kredensial tunnel
+  status: text("status").notNull().default("inactive"), // active | inactive | error
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
+});
+
+export const tunnelIngressRules = sqliteTable("tunnel_ingress_rules", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  tunnelId: text("tunnel_id").references(() => cloudflareTunnels.id, { onDelete: "cascade" }).notNull(),
+  hostname: text("hostname").notNull().unique(),    // Domain publik, e.g. "dash.domain.com"
+  service: text("service").notNull(),              // Alamat lokal, e.g. "http://localhost:1931"
+  dnsRecordId: text("dns_record_id"),               // ID Record DNS Cloudflare (untuk auto-delete)
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+});
+
 // Type exports
 export type Account = typeof accounts.$inferSelect;
 export type NewAccount = typeof accounts.$inferInsert;
@@ -254,3 +272,7 @@ export type TempMailMessage = typeof tempMailMessages.$inferSelect;
 export type NewTempMailMessage = typeof tempMailMessages.$inferInsert;
 export type CustomService = typeof customServices.$inferSelect;
 export type NewCustomService = typeof customServices.$inferInsert;
+export type CloudflareTunnel = typeof cloudflareTunnels.$inferSelect;
+export type NewCloudflareTunnel = typeof cloudflareTunnels.$inferInsert;
+export type TunnelIngressRule = typeof tunnelIngressRules.$inferSelect;
+export type NewTunnelIngressRule = typeof tunnelIngressRules.$inferInsert;

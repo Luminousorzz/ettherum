@@ -8,6 +8,13 @@
       "when": 1781464990955,
       "tag": "0000_loose_zodiak",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1781671500141,
+      "tag": "0001_cuddly_doctor_faustus",
+      "breakpoints": true
     }
   ]
 }

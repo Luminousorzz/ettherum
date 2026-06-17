@@ -24,7 +24,7 @@ function runCmd(cmd: string): string {
 }
 
 // Helper: Get Cloudflare API Settings
-async function getCloudflareSettings() {
+export async function getCloudflareSettings() {
   const allSettings = await db.select().from(settings);
   const settingsMap: Record<string, string | null> = {};
   for (const s of allSettings) {
@@ -37,7 +37,7 @@ async function getCloudflareSettings() {
 }
 
 // Helper: Find Zone ID for Hostname
-async function getZoneIdForHostname(apiToken: string, hostname: string): Promise<string> {
+export async function getZoneIdForHostname(apiToken: string, hostname: string): Promise<string> {
   const res = await fetch(`https://api.cloudflare.com/client/v4/zones?per_page=50`, {
     headers: { Authorization: `Bearer ${apiToken}` }
   });
@@ -56,7 +56,7 @@ async function getZoneIdForHostname(apiToken: string, hostname: string): Promise
 }
 
 // Helper: Write Credentials and YAML files
-async function writeTunnelConfigs(tunnelId: string, accountId: string, secret: string, rules: any[]) {
+export async function writeTunnelConfigs(tunnelId: string, accountId: string, secret: string, rules: any[]) {
   const isLinux = process.platform === "linux";
   const configDir = isLinux ? "/etc/cloudflared" : path.join(process.cwd(), "data", "cloudflared");
   

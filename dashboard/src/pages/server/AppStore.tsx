@@ -30,9 +30,26 @@ import {
   ExternalLink,
   X,
   PlusCircle,
-  Cpu
+  Cpu,
+  Globe
 } from "lucide-react";
 import { fetchApi } from "@/lib/api";
+
+const GithubIcon = ({ className }: { className?: string }) => (
+  <svg
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className={className}
+    style={{ width: '1em', height: '1em' }}
+  >
+    <path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4" />
+    <path d="M9 18c-4.51 2-5-2-7-2" />
+  </svg>
+);
 
 interface StoreApp {
   id: string;
@@ -52,11 +69,18 @@ interface CustomService {
   cwd: string;
   command: string;
   envVars: string | null; // JSON string
-  status: string; // running | stopped | error
+  status: string; // running | stopped | error | building
   resources?: {
     cpu: number;
     memory: number;
   };
+  githubRepo?: string | null;
+  githubBranch?: string | null;
+  buildCommand?: string | null;
+  port?: number | null;
+  tunnelId?: string | null;
+  hostname?: string | null;
+  webhookSecret?: string | null;
 }
 
 export default function AppStore() {
@@ -76,10 +100,24 @@ export default function AppStore() {
   const [formError, setFormError] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
+  // New GitHub & Cloudflare Form states
+  const [githubEnabled, setGithubEnabled] = useState(false);
+  const [formGithubRepo, setFormGithubRepo] = useState("");
+  const [formGithubBranch, setFormGithubBranch] = useState("main");
+  const [formBuildCmd, setFormBuildCmd] = useState("");
+  const [tunnelEnabled, setTunnelEnabled] = useState(false);
+  const [formTunnelId, setFormTunnelId] = useState("");
+  const [formHostname, setFormHostname] = useState("");
+  const [formPort, setFormPort] = useState("");
+
+  // Cloudflare Tunnels list
+  const [tunnels, setTunnels] = useState<{ id: string; name: string; status: string }[]>([]);
+
   // Log terminal states
   const [logsDialogOpen, setLogsDialogOpen] = useState(false);
   const [selectedService, setSelectedService] = useState<CustomService | null>(null);
   const [logsContent, setLogsContent] = useState("");
+  const [logType, setLogType] = useState<"systemd" | "build">("systemd");
   const [loadingLogs, setLoadingLogs] = useState(false);
   const logsEndRef = useRef<HTMLDivElement>(null);
 
@@ -95,6 +133,13 @@ export default function AppStore() {
 
       const customRes = await fetchApi<CustomService[]>("/api/apps/custom");
       setCustomServicesList(customRes);
+
+      try {
+        const tunnelRes = await fetchApi<{ data: any[] }>("/api/tunnels");
+        setTunnels(tunnelRes.data || []);
+      } catch (tunnelErr) {
+        console.warn("Failed to fetch Cloudflare Tunnels:", tunnelErr);
+      }
     } catch (err: any) {
       console.error("Failed to load Apps data:", err);
       setStatusMessage(`Load failed: ${err.message || String(err)}`);
@@ -123,7 +168,10 @@ export default function AppStore() {
 
     const fetchLogs = async () => {
       try {
-        const res = await fetchApi<{ logs: string }>(`/api/apps/custom/${selectedService.id}/logs`);
+        const endpoint = logType === "build" 
+          ? `/api/apps/custom/${selectedService.id}/build-logs`
+          : `/api/apps/custom/${selectedService.id}/logs`;
+        const res = await fetchApi<{ logs: string }>(endpoint);
         setLogsContent(res.logs || "No logs available.");
       } catch (err: any) {
         setLogsContent(`Failed to read logs: ${err.message}`);
@@ -133,7 +181,7 @@ export default function AppStore() {
     fetchLogs();
     const interval = setInterval(fetchLogs, 2000);
     return () => clearInterval(interval);
-  }, [logsDialogOpen, selectedService]);
+  }, [logsDialogOpen, selectedService, logType]);
 
   // Docker actions
   const handleDockerInstall = async (appId: string) => {
@@ -200,6 +248,29 @@ export default function AppStore() {
     }
   };
 
+  const handleCustomRedeploy = async (id: number, name: string) => {
+    try {
+      setStatusMessage(`Triggering redeployment for ${name}...`);
+      await fetchApi(`/api/apps/custom/${id}/redeploy`, { method: "POST" });
+      setStatusMessage(`Redeployment triggered! Check build logs.`);
+      loadData(true);
+    } catch (err: any) {
+      setStatusMessage(`Redeploy failed: ${err.message}`);
+    }
+  };
+
+  const handleSetupGithubHook = async (id: number, name: string) => {
+    try {
+      setStatusMessage(`Registering GitHub webhook for ${name}...`);
+      const res = await fetchApi<{ success: boolean; message: string }>(`/api/apps/custom/${id}/github-hook`, {
+        method: "POST"
+      });
+      setStatusMessage(res.message || `Webhook registered successfully.`);
+    } catch (err: any) {
+      setStatusMessage(`GitHub Hook failed: ${err.message}`);
+    }
+  };
+
   // Create custom service submission
   const handleCreateCustomService = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -213,6 +284,26 @@ export default function AppStore() {
     if (!/^[a-zA-Z0-9-_]+$/.test(formName)) {
       setFormError("Service Name can only contain alphanumeric characters, dashes, and underscores.");
       return;
+    }
+
+    if (githubEnabled && !formGithubRepo.trim()) {
+      setFormError("GitHub Repository (owner/repo) is required when Git deploy is enabled.");
+      return;
+    }
+
+    if (tunnelEnabled) {
+      if (!formTunnelId) {
+        setFormError("Please select a Cloudflare Tunnel.");
+        return;
+      }
+      if (!formHostname.trim()) {
+        setFormError("Public domain hostname is required.");
+        return;
+      }
+      if (!formPort || isNaN(parseInt(formPort))) {
+        setFormError("A valid local port is required to route the tunnel.");
+        return;
+      }
     }
 
     // Convert env vars list to record
@@ -232,7 +323,13 @@ export default function AppStore() {
           description: formDesc || undefined,
           cwd: formCwd,
           command: formCmd,
-          envVars: Object.keys(envVarsRecord).length > 0 ? envVarsRecord : undefined
+          envVars: Object.keys(envVarsRecord).length > 0 ? envVarsRecord : undefined,
+          githubRepo: githubEnabled ? formGithubRepo.trim() : undefined,
+          githubBranch: githubEnabled ? formGithubBranch.trim() : undefined,
+          buildCommand: githubEnabled && formBuildCmd.trim() ? formBuildCmd.trim() : undefined,
+          tunnelId: tunnelEnabled ? formTunnelId : undefined,
+          hostname: tunnelEnabled ? formHostname.trim() : undefined,
+          port: tunnelEnabled ? parseInt(formPort) : undefined
         })
       });
       
@@ -242,6 +339,14 @@ export default function AppStore() {
       setFormCwd("");
       setFormCmd("");
       setFormEnv([{ key: "", value: "" }]);
+      setGithubEnabled(false);
+      setFormGithubRepo("");
+      setFormGithubBranch("main");
+      setFormBuildCmd("");
+      setTunnelEnabled(false);
+      setFormTunnelId("");
+      setFormHostname("");
+      setFormPort("");
       setAddDialogOpen(false);
       setStatusMessage("Successfully created custom systemd service!");
       loadData(true);
@@ -292,6 +397,12 @@ export default function AppStore() {
         return <Badge variant="error">Docker Missing</Badge>;
       case "error":
         return <Badge variant="error">Error</Badge>;
+      case "building":
+        return (
+          <Badge variant="warning" className="animate-pulse bg-amber-500/10 text-amber-400 border border-amber-500/30 gap-1 flex items-center">
+            <RefreshCw className="w-2.5 h-2.5 animate-spin" /> Building
+          </Badge>
+        );
       default:
         return <Badge variant="outline" className="text-zinc-500 border-zinc-700">Not Installed</Badge>;
     }
@@ -474,6 +585,30 @@ export default function AppStore() {
                     {service.description && (
                       <p className="text-xs text-[var(--muted-foreground)]">{service.description}</p>
                     )}
+                    {(service.githubRepo || service.hostname) && (
+                      <div className="flex flex-wrap gap-2 pt-0.5 pb-1">
+                        {service.githubRepo && (
+                          <a
+                            href={`https://github.com/${service.githubRepo}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-[10px] text-[var(--primary)] hover:underline font-mono bg-[var(--primary)]/5 px-2 py-0.5 rounded border border-[var(--primary)]/10"
+                          >
+                            <GithubIcon className="w-3.5 h-3.5" /> {service.githubRepo} ({service.githubBranch || "main"})
+                          </a>
+                        )}
+                        {service.hostname && (
+                          <a
+                            href={`https://${service.hostname}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-[10px] text-emerald-400 hover:underline font-mono bg-emerald-500/5 px-2 py-0.5 rounded border border-emerald-500/10"
+                          >
+                            <Globe className="w-3 h-3" /> {service.hostname} ➔ Port {service.port}
+                          </a>
+                        )}
+                      </div>
+                    )}
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 text-[10px] text-[var(--muted-foreground)] font-mono">
                       <div className="truncate">Cwd: <span className="text-zinc-400">{service.cwd}</span></div>
                       <div className="truncate">Cmd: <span className="text-zinc-400">{service.command}</span></div>
@@ -497,6 +632,33 @@ export default function AppStore() {
 
                   {/* Service actions */}
                   <div className="flex items-center gap-2 shrink-0">
+                    {/* Redeploy (Git pull & rebuild) */}
+                    {service.githubRepo && (
+                      <Button
+                        onClick={() => handleCustomRedeploy(service.id, service.name)}
+                        disabled={service.status === "building"}
+                        variant="outline"
+                        size="sm"
+                        className="text-xs text-[var(--primary)] border-[var(--primary)]/30 bg-[var(--primary)]/5 hover:bg-[var(--primary)]/10 cursor-pointer h-8"
+                        title="Pull latest code, rebuild, and restart"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 mr-1 ${service.status === "building" ? "animate-spin" : ""}`} /> Deploy
+                      </Button>
+                    )}
+
+                    {/* Setup Webhook */}
+                    {service.githubRepo && service.hostname && (
+                      <Button
+                        onClick={() => handleSetupGithubHook(service.id, service.name)}
+                        variant="outline"
+                        size="sm"
+                        className="text-xs text-zinc-400 border-zinc-700 bg-zinc-800/10 hover:bg-zinc-800/30 cursor-pointer h-8 px-2"
+                        title="Auto-register GitHub Webhook for CI/CD auto-builds"
+                      >
+                        <LinkIcon className="w-3.5 h-3.5 mr-1" /> Webhook
+                      </Button>
+                    )}
+
                     {service.status === "running" ? (
                       <Button
                         onClick={() => handleCustomControl(service.id, "stop")}
@@ -512,6 +674,7 @@ export default function AppStore() {
                         variant="outline"
                         size="sm"
                         className="text-xs text-[var(--success)] border-[var(--success)]/30 bg-[var(--success)]/5 hover:bg-[var(--success)]/10 cursor-pointer h-8"
+                        disabled={service.status === "building"}
                       >
                         <Play className="w-3.5 h-3.5 mr-1" fill="currentColor" /> Start
                       </Button>
@@ -523,13 +686,33 @@ export default function AppStore() {
                       size="sm"
                       className="text-xs text-zinc-400 border-zinc-700 bg-zinc-800/20 hover:bg-zinc-800/40 cursor-pointer h-8"
                       title="Restart Service"
+                      disabled={service.status === "building"}
                     >
                       <RotateCw className="w-3.5 h-3.5" />
                     </Button>
 
+                    {/* Build Logs */}
+                    {service.buildCommand && (
+                      <Button
+                        onClick={() => {
+                          setSelectedService(service);
+                          setLogType("build");
+                          setLogsContent("Connecting to build logs...");
+                          setLogsDialogOpen(true);
+                        }}
+                        variant="secondary"
+                        size="sm"
+                        className="text-xs cursor-pointer h-8 text-amber-500 border border-amber-500/20 bg-amber-500/5 hover:bg-amber-500/10"
+                      >
+                        <Terminal className="w-3.5 h-3.5 mr-1" /> Build Logs
+                      </Button>
+                    )}
+
+                    {/* Service Logs */}
                     <Button
                       onClick={() => {
                         setSelectedService(service);
+                        setLogType("systemd");
                         setLogsContent("Connecting to journalctl logs...");
                         setLogsDialogOpen(true);
                       }}
@@ -608,7 +791,7 @@ export default function AppStore() {
                 required
               />
               <p className="text-[9px] text-[var(--muted-foreground)] mt-0.5">
-                Path folder root proyek Anda di SD Card eksternal.
+                Path folder root proyek Anda di SD Card eksternal (di-clone ke sini jika menggunakan Git).
               </p>
             </div>
 
@@ -624,6 +807,116 @@ export default function AppStore() {
               <p className="text-[9px] text-[var(--muted-foreground)] mt-0.5">
                 Perintah yang dijalankan untuk menyalakan script Anda.
               </p>
+            </div>
+
+            {/* Git Deploy Section Toggle */}
+            <div className="space-y-3 border-t border-[var(--border)]/30 pt-3">
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <span className="text-xs font-bold text-[var(--foreground)]">Deploy from GitHub Repository</span>
+                  <p className="text-[10px] text-[var(--muted-foreground)]">Clone and build private/public repos automatically</p>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={githubEnabled}
+                  onChange={(e) => setGithubEnabled(e.target.checked)}
+                  className="w-4 h-4 rounded border-zinc-700 bg-zinc-800 text-[var(--primary)] focus:ring-0 focus:ring-offset-0 cursor-pointer"
+                />
+              </div>
+
+              {githubEnabled && (
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-3 rounded-lg bg-zinc-900/40 border border-zinc-800/80">
+                  <div className="space-y-1 sm:col-span-2">
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-[var(--muted-foreground)]">GitHub Repository (owner/repo)</label>
+                    <Input
+                      value={formGithubRepo}
+                      onChange={(e) => setFormGithubRepo(e.target.value)}
+                      placeholder="e.g. Luminousorzz/ettherum"
+                      className="h-8 font-mono text-xs"
+                      required={githubEnabled}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-[var(--muted-foreground)]">Branch</label>
+                    <Input
+                      value={formGithubBranch}
+                      onChange={(e) => setFormGithubBranch(e.target.value)}
+                      placeholder="main"
+                      className="h-8 font-mono text-xs"
+                      required={githubEnabled}
+                    />
+                  </div>
+                  <div className="space-y-1 sm:col-span-3">
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-[var(--muted-foreground)]">Build Command (runs before service starts)</label>
+                    <Input
+                      value={formBuildCmd}
+                      onChange={(e) => setFormBuildCmd(e.target.value)}
+                      placeholder="e.g. bun install && bun run build"
+                      className="h-8 font-mono text-xs"
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Cloudflare Tunnel Section Toggle */}
+            <div className="space-y-3 border-t border-[var(--border)]/30 pt-3">
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <span className="text-xs font-bold text-[var(--foreground)]">Expose via Cloudflare Tunnel</span>
+                  <p className="text-[10px] text-[var(--muted-foreground)]">Route local port to a public domain with SSL</p>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={tunnelEnabled}
+                  onChange={(e) => setTunnelEnabled(e.target.checked)}
+                  className="w-4 h-4 rounded border-zinc-700 bg-zinc-800 text-[var(--primary)] focus:ring-0 focus:ring-offset-0 cursor-pointer"
+                />
+              </div>
+
+              {tunnelEnabled && (
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-3 rounded-lg bg-zinc-900/40 border border-zinc-800/80">
+                  <div className="space-y-1 sm:col-span-2">
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-[var(--muted-foreground)]">Select Tunnel</label>
+                    <select
+                      value={formTunnelId}
+                      onChange={(e) => setFormTunnelId(e.target.value)}
+                      className="flex h-8 w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-1 text-xs text-white shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                      required={tunnelEnabled}
+                    >
+                      <option value="">-- Choose a Cloudflare Tunnel --</option>
+                      {tunnels.map((t) => (
+                        <option key={t.id} value={t.id}>
+                          {t.name} ({t.status})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-[var(--muted-foreground)]">Local Port</label>
+                    <Input
+                      value={formPort}
+                      onChange={(e) => setFormPort(e.target.value)}
+                      placeholder="e.g. 3000"
+                      className="h-8 font-mono text-xs"
+                      required={tunnelEnabled}
+                    />
+                  </div>
+                  <div className="space-y-1 sm:col-span-3">
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-[var(--muted-foreground)]">Public Domain Hostname</label>
+                    <Input
+                      value={formHostname}
+                      onChange={(e) => setFormHostname(e.target.value)}
+                      placeholder="e.g. app.domain.com"
+                      className="h-8 font-mono text-xs"
+                      required={tunnelEnabled}
+                    />
+                    <p className="text-[9px] text-[var(--muted-foreground)]">
+                      Domain must point to Cloudflare DNS. CNAME record will be auto-created.
+                    </p>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Env variables editor */}
@@ -696,7 +989,7 @@ export default function AppStore() {
           <DialogHeader className="border-b border-zinc-800 pb-3">
             <DialogTitle className="text-sm font-semibold uppercase tracking-wider text-zinc-400 flex items-center gap-2">
               <Terminal className="w-4 h-4 text-[var(--primary)]" />
-              Live Output Logs: {selectedService?.name}.service
+              {logType === "build" ? "Live GitHub Build Logs: " : "Live Output Logs: "} {selectedService?.name}
             </DialogTitle>
           </DialogHeader>
 

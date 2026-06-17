@@ -1,0 +1,53 @@
+Berikut adalah daftar lengkap (master list) metrik sistem analitik untuk Akari AX512 berbasis Armbian.
+Daftar ini menggabungkan semua poin yang Anda sebutkan dengan rekomendasi tambahan untuk menjaga kesehatan hardware STB Anda.
+## 1. Performa & Status CPU (Prosesor)
+
+* CPU Usage: Persentase beban kerja CPU secara keseluruhan dan per-core.
+* CPU Temperature: Suhu SoC untuk mencegah overheating.
+* CPU Frequency: Kecepatan clock aktif (dalam MHz/GHz).
+* CPU Throttling: Status apakah CPU sedang menurunkan performa akibat panas.
+* Load Average: Beban sistem dalam interval 1, 5, dan 15 menit terakhir.
+
+## 2. Memori & Penyimpanan (RAM & Storage)
+
+* RAM Usage: Kapasitas RAM yang digunakan, bebas (free), dan buffered/cache.
+* Swap Usage: Penggunaan memori virtual pada penyimpanan jika RAM utama penuh.
+* Internal Storage: Sisa kapasitas dan persentase penggunaan memori internal (eMMC).
+* External Storage: Status dan sisa kapasitas MicroSD atau USB HDD/SSD yang terpasang.
+* Storage Health / Wearout: Status kesehatan MicroSD/eMMC untuk mendeteksi kerusakan sel memori.
+* Disk I/O Load: Kecepatan baca/tulis dan waktu tunggu (I/O wait) media penyimpanan.
+
+## 3. Jaringan & Konektivitas (Internet)
+
+* IP Address: Alamat IP lokal (LAN/Wi-Fi) dan IP publik saat ini.
+* Network Throughput: Kecepatan unduh (download) dan unggah (upload) real-time.
+* Network Traffic Volume: Total kuota data yang sudah lewat sejak STB menyala.
+* Ping / Latency: Status kestabilan koneksi dan packet loss ke DNS luar (misal: 8.8.8.8).
+
+## 4. Manajemen Layanan (Systemctl & Aplikasi)
+
+* Systemctl List: Daftar semua layanan (services) yang aktif di latar belakang.
+* Script Service Status: Status aktif/mati untuk custom script yang Anda buat sendiri yg masuk ke systemctl dan bukan (bisa membuat command 
+untuk mendaftarkannya ke systemctl dan masuk ke daftar status).
+* Website Service Status: Status web server (seperti Nginx, Apache, atau PHP-FPM).
+* External/Custom Systemctl: Status layanan pihak ketiga (seperti database, MQTT, dll).
+* Custom Arguments Tracker: Parameter khusus yang dimasukkan saat menjalankan service.
+* Docker Container Status: Status running, CPU, dan RAM per-container (jika menggunakan Docker).
+
+## 5. Informasi OS & Sistem Umum
+
+* OS Type & Name: Detail distribusi (misal: Armbian 23.xx, Debian/Ubuntu base).
+* Kernel Version: Versi kernel Linux yang sedang berjalan.
+* System Uptime: Durasi waktu sejak STB terakhir kali dinyalakan atau di-reboot.
+* Current Boot Time: Tanggal dan jam tepatnya sistem mulai menyala.
+
+## 6. Keamanan & Log (Tambahan Penting)
+
+* Active SSH Sessions: Jumlah dan IP pengguna yang sedang remote masuk ke STB.
+* Failed Login Attempts: Deteksi percobaan login gagal untuk mencegah pembobolan.
+* Top 5 Resource Consumers: Daftar 5 proses teratas yang paling boros memakan CPU/RAM.
+* Critical Logs Summary: Baris error terakhir dari perintah dmesg atau syslog.
+
+
+
+

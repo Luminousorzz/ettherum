@@ -15,6 +15,13 @@
       "when": 1781671500141,
       "tag": "0001_cuddly_doctor_faustus",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1781674868605,
+      "tag": "0002_fat_clea",
+      "breakpoints": true
     }
   ]
 }

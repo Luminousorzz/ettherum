@@ -220,6 +220,13 @@ export const customServices = sqliteTable("custom_services", {
   command: text("command").notNull(),
   envVars: text("env_vars"), // JSON string of env key-values
   status: text("status").notNull().default("stopped"),
+  githubRepo: text("github_repo"),
+  githubBranch: text("github_branch").default("main"),
+  buildCommand: text("build_command"),
+  port: integer("port"),
+  tunnelId: text("tunnel_id").references(() => cloudflareTunnels.id, { onDelete: "set null" }),
+  hostname: text("hostname"),
+  webhookSecret: text("webhook_secret"),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
   updatedAt: integer("updated_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
 });

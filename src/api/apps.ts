@@ -403,6 +403,9 @@ appsRouter.post("/custom", async (c) => {
           .join("\n");
       }
 
+      // Clean CWD path to use forward slashes for systemd configuration
+      const envFilePath = path.join(body.cwd, ".env").replace(/\\/g, "/");
+
       const serviceContent = `[Unit]
 Description=Etteum App ${body.name}
 After=network.target
@@ -413,6 +416,7 @@ WorkingDirectory=${body.cwd}
 ExecStart=${body.command}
 Restart=on-failure
 RestartSec=5
+EnvironmentFile=-${envFilePath}
 ${envLines}
 User=root
 
